@@ -797,10 +797,10 @@ export default function App() {
 
             {/* Kolom Kanan: Keranjang & Checkout */}
             {showMobileCart && (
-              <div className="md:hidden fixed inset-0 bg-slate-900/40 z-30 backdrop-blur-sm transition-opacity" onClick={() => setShowMobileCart(false)}></div>
+              <div className="md:hidden fixed inset-0 bg-slate-900/40 z-[50] backdrop-blur-sm transition-opacity" onClick={() => setShowMobileCart(false)}></div>
             )}
             
-            <section className={`fixed md:relative inset-x-0 bottom-0 top-12 md:top-0 z-40 md:z-0 bg-white md:rounded-xl shadow-[0_-10px_40px_rgb(0,0,0,0.1)] md:shadow-sm border-t md:border border-slate-200 w-full md:w-96 flex flex-col transition-transform duration-300 ease-in-out transform ${showMobileCart ? 'translate-y-0' : 'translate-y-full md:translate-y-0'} shrink-0 rounded-t-2xl md:rounded-t-xl`}>
+            <section className={`fixed md:relative inset-x-0 bottom-0 top-12 md:top-0 z-[60] md:z-0 bg-white md:rounded-xl shadow-[0_-10px_40px_rgb(0,0,0,0.1)] md:shadow-sm border-t md:border border-slate-200 w-full md:w-96 flex flex-col transition-transform duration-300 ease-in-out transform ${showMobileCart ? 'translate-y-0' : 'translate-y-full md:translate-y-0'} shrink-0 rounded-t-2xl md:rounded-t-xl`}>
               <div className="p-3 md:p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl md:rounded-t-xl shrink-0">
                 <div className="flex items-center gap-2">
                   <button className="md:hidden p-1.5 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg text-slate-600 shadow-sm" onClick={() => setShowMobileCart(false)}><ChevronDown size={20}/></button>
@@ -835,7 +835,8 @@ export default function App() {
                 )}
               </div>
 
-              <div className="p-3 md:p-4 border-t border-slate-200 bg-white pb-safe shrink-0 rounded-b-xl">
+              {/* PERBAIKAN: Padding Bottom Ditambah Agar Tombol Tidak Terpotong di Layar HP */}
+              <div className="p-3 md:p-4 border-t border-slate-200 bg-white pb-8 md:pb-4 shrink-0 rounded-b-xl">
                 {errorMsg && <div className="mb-2 md:mb-3 bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded-lg text-xs flex items-center gap-2"><AlertCircle size={14} className="shrink-0"/> <span className="leading-tight">{errorMsg}</span></div>}
                 
                 <div className="flex justify-between items-center mb-3"><span className="text-sm text-slate-500 font-semibold">Total Belanja</span><span className="text-xl md:text-2xl font-black text-red-600">{formatRupiah(totalAmount)}</span></div>
@@ -847,7 +848,6 @@ export default function App() {
                 <div className="mb-4">
                   <div className="flex items-center gap-2 mb-2">
                     <button onClick={() => handleAddPayment(-1000)} className="w-12 h-10 md:h-11 bg-slate-200 text-slate-700 rounded-xl font-bold flex items-center justify-center shrink-0 active:bg-slate-300"><Minus size={18} /></button>
-                    {/* PERBAIKAN: FORMAT UANG (Rp. 50.000) SAAT DIKETIK */}
                     <input 
                       type="text" 
                       inputMode="numeric"
@@ -871,7 +871,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* PERBAIKAN: KEMBALIAN SELALU MUNCUL MESKI UANG KURANG (Real-Time) */}
                 {paymentAmount !== "" && (
                   <div className={`flex justify-between items-center mb-3 p-2.5 rounded-xl border ${changeAmount < 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
                     <span className={`text-xs font-bold ${changeAmount < 0 ? 'text-red-800' : 'text-green-800'}`}>{changeAmount < 0 ? 'Uang Kurang' : 'Kembalian'}</span>
