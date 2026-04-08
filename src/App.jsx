@@ -27,7 +27,7 @@ const LogoKoperasi = ({ sizeClass = "w-16 h-16", iconSize = 32 }) => {
     <div className={`bg-white rounded-full flex items-center justify-center shadow-md overflow-hidden shrink-0 ${sizeClass}`}>
       {!hasError ? (
         <img 
-          src="LOGO KDMP SUKASARI.jpg" 
+          src="LOGO KDMP SUKASARI.png" 
           alt="Logo Koperasi" 
           className="w-full h-full object-cover p-0.5" 
           onError={() => setHasError(true)} 
