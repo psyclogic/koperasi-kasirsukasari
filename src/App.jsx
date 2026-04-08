@@ -40,12 +40,19 @@ const LogoKoperasi = ({ sizeClass = "w-16 h-16", iconSize = 32 }) => {
 };
 
 export default function App() {
-  // State Autentikasi
-  const [currentUser, setCurrentUser] = useState(null);
+  // ==========================================
+  // STATE AUTENTIKASI (DIPERBARUI UNTUK ANTI-REFRESH)
+  // ==========================================
+  // Cek apakah ada sesi login yang tersimpan di memori browser
+  const [currentUser, setCurrentUser] = useState(() => {
+    const savedUser = localStorage.getItem('koperasiUser');
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+  
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
 
-  // State Aplikasi (Sekarang defaultnya kosong, karena akan ambil dari Firebase)
+  // State Aplikasi
   const [products, setProducts] = useState([]);
   const [salesHistory, setSalesHistory] = useState([]);
   
@@ -122,10 +129,14 @@ export default function App() {
     const { username, password } = loginForm;
 
     if (username === 'yoga' && password === 'yoga123') {
-      setCurrentUser({ username: 'Administrator', role: 'admin' });
+      const user = { username: 'Administrator', role: 'admin' };
+      setCurrentUser(user);
+      localStorage.setItem('koperasiUser', JSON.stringify(user)); // Simpan sesi
       setLoginForm({ username: '', password: '' });
     } else if (username === 'ayu' && password === 'ayu123') {
-      setCurrentUser({ username: 'Kasir 1', role: 'kasir' });
+      const user = { username: 'Kasir 1', role: 'kasir' };
+      setCurrentUser(user);
+      localStorage.setItem('koperasiUser', JSON.stringify(user)); // Simpan sesi
       setLoginForm({ username: '', password: '' });
     } else {
       setLoginError('Username atau password salah!');
@@ -134,6 +145,7 @@ export default function App() {
 
   const handleLogout = () => {
     setCurrentUser(null);
+    localStorage.removeItem('koperasiUser'); // Hapus sesi saat logout
     setCart([]);
     setActiveTab("kasir");
   };
