@@ -153,11 +153,28 @@ export default function App() {
     }).format(number);
   };
 
-  const filteredProducts = products.filter(p => 
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    p.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.code && p.code.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  // ==========================================
+  // PERBAIKAN: SORTING BARANG DI KASIR
+  // ==========================================
+  const filteredProducts = products
+    .filter(p => 
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      p.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.code && p.code.toLowerCase().includes(searchQuery.toLowerCase()))
+    )
+    .sort((a, b) => {
+      // 1. Urutkan berdasarkan Nomor/Kode Barang terlebih dahulu (Alfanumerik)
+      const codeA = a.code || "";
+      const codeB = b.code || "";
+      const codeComp = codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+      
+      if (codeComp !== 0) return codeComp;
+
+      // 2. Jika kode sama atau tidak ada, urutkan berdasarkan Nama Barang (A-Z)
+      const nameA = a.name || "";
+      const nameB = b.name || "";
+      return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
+    });
 
   const sortedProducts = React.useMemo(() => {
     let sortableItems = [...filteredProducts];
@@ -835,7 +852,6 @@ export default function App() {
                 )}
               </div>
 
-              {/* PERBAIKAN: Padding Bottom Ditambah Agar Tombol Tidak Terpotong di Layar HP */}
               <div className="p-3 md:p-4 border-t border-slate-200 bg-white pb-8 md:pb-4 shrink-0 rounded-b-xl">
                 {errorMsg && <div className="mb-2 md:mb-3 bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded-lg text-xs flex items-center gap-2"><AlertCircle size={14} className="shrink-0"/> <span className="leading-tight">{errorMsg}</span></div>}
                 
