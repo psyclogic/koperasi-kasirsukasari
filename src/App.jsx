@@ -40,10 +40,7 @@ const LogoKoperasi = ({ sizeClass = "w-16 h-16", iconSize = 32 }) => {
 };
 
 export default function App() {
-  // ==========================================
-  // STATE AUTENTIKASI (DIPERBARUI UNTUK ANTI-REFRESH)
-  // ==========================================
-  // Cek apakah ada sesi login yang tersimpan di memori browser
+  // State Autentikasi
   const [currentUser, setCurrentUser] = useState(() => {
     const savedUser = localStorage.getItem('koperasiUser');
     return savedUser ? JSON.parse(savedUser) : null;
@@ -96,7 +93,6 @@ export default function App() {
   // EFEK FIREBASE (AMBIL DATA REAL-TIME)
   // ==========================================
   useEffect(() => {
-    // Pantau perubahan data 'products' secara langsung
     const unsubscribeProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
       const productsData = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -105,13 +101,11 @@ export default function App() {
       setProducts(productsData);
     });
 
-    // Pantau perubahan data 'sales' (riwayat transaksi)
     const unsubscribeSales = onSnapshot(collection(db, 'sales'), (snapshot) => {
       const salesData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
-      // Urutkan transaksi dari yang paling baru
       salesData.sort((a, b) => b.timestamp - a.timestamp);
       setSalesHistory(salesData);
     });
@@ -131,12 +125,12 @@ export default function App() {
     if (username === 'yoga' && password === 'yoga123') {
       const user = { username: 'Administrator', role: 'admin' };
       setCurrentUser(user);
-      localStorage.setItem('koperasiUser', JSON.stringify(user)); // Simpan sesi
+      localStorage.setItem('koperasiUser', JSON.stringify(user));
       setLoginForm({ username: '', password: '' });
     } else if (username === 'ayu' && password === 'ayu123') {
       const user = { username: 'Kasir 1', role: 'kasir' };
       setCurrentUser(user);
-      localStorage.setItem('koperasiUser', JSON.stringify(user)); // Simpan sesi
+      localStorage.setItem('koperasiUser', JSON.stringify(user));
       setLoginForm({ username: '', password: '' });
     } else {
       setLoginError('Username atau password salah!');
@@ -145,7 +139,7 @@ export default function App() {
 
   const handleLogout = () => {
     setCurrentUser(null);
-    localStorage.removeItem('koperasiUser'); // Hapus sesi saat logout
+    localStorage.removeItem('koperasiUser');
     setCart([]);
     setActiveTab("kasir");
   };
@@ -286,10 +280,8 @@ export default function App() {
         customer: finalCustomerName
       };
 
-      // 1. Simpan Transaksi ke Firebase 'sales'
       const docRef = await addDoc(collection(db, 'sales'), transactionData);
       
-      // 2. Kurangi Stok di Firebase 'products'
       for (const item of cart) {
         const productRef = doc(db, 'products', item.id);
         const originalProduct = products.find(p => p.id === item.id);
@@ -366,7 +358,6 @@ export default function App() {
     if (!transactionToDelete) return;
 
     try {
-      // 1. Kembalikan Stok ke Firebase
       for (const item of transactionToDelete.items) {
         const productRef = doc(db, 'products', item.id);
         const originalProduct = products.find(p => p.id === item.id);
@@ -377,16 +368,13 @@ export default function App() {
         }
       }
 
-      // 2. Hapus Transaksi dari Firebase
       await deleteDoc(doc(db, 'sales', transactionToDelete.id));
-      
       setTransactionToDelete(null);
     } catch (error) {
       setErrorMsg("Gagal membatalkan transaksi.");
     }
   };
 
-  // --- FUNGSI DOWNLOAD NOTA (JPG) ---
   const downloadReceiptJPG = (data) => {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -469,7 +457,6 @@ export default function App() {
     link.click();
   };
 
-  // --- FILTER & REPORT CALCULATION ---
   const filteredHistory = salesHistory.filter(trx => {
     let isValid = true;
     const parts = trx.date.split(' ')[0].split('/'); 
@@ -531,7 +518,6 @@ export default function App() {
     return new Date(`${y2}-${m2}-${d2}`) - new Date(`${y1}-${m1}-${d1}`);
   });
 
-  // --- FUNGSI EXPORT KE EXCEL & WORD ---
   const exportToExcelCSV = (filename, headers, rows) => {
     const csvContent = "\ufeff" + [headers, ...rows]
       .map(row => row.map(cell => `"${cell}"`).join(";"))
@@ -704,7 +690,7 @@ export default function App() {
   // ==========================================
   return (
     <div className="bg-slate-50 font-sans flex flex-col h-screen overflow-hidden">
-      {/* Header Utama (Desktop & Mobile) */}
+      {/* Header Utama */}
       <header className="bg-red-600 text-white shadow-md p-3 md:p-4 shrink-0 flex items-center justify-between z-10">
         <div className="flex items-center gap-2 md:gap-3">
           <LogoKoperasi sizeClass="w-10 h-10 md:w-12 md:h-12" iconSize={24} />
@@ -714,7 +700,6 @@ export default function App() {
           </div>
         </div>
         
-        {/* Navigasi Desktop (Disembunyikan di Mobile) */}
         <div className="hidden md:flex items-center gap-4">
           <div className="flex bg-red-700/50 rounded-lg p-1">
             <button onClick={() => setActiveTab("kasir")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${activeTab === "kasir" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><ShoppingCart size={16} /> Kasir</button>
@@ -733,7 +718,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* User Profile Sederhana untuk Mobile */}
         <div className="md:hidden flex items-center gap-2">
            <div className="flex flex-col items-end">
              <span className="text-xs font-bold leading-tight">{currentUser.username}</span>
@@ -742,7 +726,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Area Konten Utama (Scrollable) */}
+      {/* Area Konten Utama */}
       <div className="flex-1 overflow-hidden relative">
         
         {/* Konten KASIR */}
@@ -778,7 +762,6 @@ export default function App() {
                           <span className="bg-red-600 text-white text-[10px] md:text-xs font-bold px-2 py-1 rounded shadow">HABIS</span>
                         </div>
                       )}
-                      {/* Badge indikator barang sudah ada di keranjang */}
                       {cart.find(c => c.id === product.id) && (
                          <div className="absolute -top-2 -right-2 bg-red-600 text-white text-[10px] font-bold w-5 h-5 md:w-6 md:h-6 rounded-full flex items-center justify-center shadow-md border-2 border-white">
                            {cart.find(c => c.id === product.id).qty}
@@ -796,7 +779,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Floating Trigger untuk membuka Laci Keranjang di Mobile */}
               {cart.length > 0 && (
                 <div className="md:hidden fixed bottom-[72px] left-0 right-0 px-4 z-20 pointer-events-none">
                   <button onClick={() => setShowMobileCart(true)} className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-2xl p-3.5 shadow-[0_8px_30px_rgb(0,0,0,0.2)] flex justify-between items-center pointer-events-auto transform transition-transform active:scale-[0.98]">
@@ -813,7 +795,7 @@ export default function App() {
               )}
             </section>
 
-            {/* Kolom Kanan: Keranjang & Checkout (Sliding Drawer di Mobile) */}
+            {/* Kolom Kanan: Keranjang & Checkout */}
             {showMobileCart && (
               <div className="md:hidden fixed inset-0 bg-slate-900/40 z-30 backdrop-blur-sm transition-opacity" onClick={() => setShowMobileCart(false)}></div>
             )}
@@ -865,7 +847,15 @@ export default function App() {
                 <div className="mb-4">
                   <div className="flex items-center gap-2 mb-2">
                     <button onClick={() => handleAddPayment(-1000)} className="w-12 h-10 md:h-11 bg-slate-200 text-slate-700 rounded-xl font-bold flex items-center justify-center shrink-0 active:bg-slate-300"><Minus size={18} /></button>
-                    <input type="number" placeholder="Uang Dibayar" className="w-full h-10 md:h-11 px-3 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 text-base font-bold text-center" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} />
+                    {/* PERBAIKAN: FORMAT UANG (Rp. 50.000) SAAT DIKETIK */}
+                    <input 
+                      type="text" 
+                      inputMode="numeric"
+                      placeholder="Uang Dibayar" 
+                      className="w-full h-10 md:h-11 px-3 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 text-base font-bold text-center" 
+                      value={paymentAmount ? "Rp. " + new Intl.NumberFormat('id-ID').format(paymentAmount) : ""} 
+                      onChange={(e) => setPaymentAmount(e.target.value.replace(/[^0-9]/g, ''))} 
+                    />
                     <button onClick={() => handleAddPayment(1000)} className="w-12 h-10 md:h-11 bg-slate-200 text-slate-700 rounded-xl font-bold flex items-center justify-center shrink-0 active:bg-slate-300"><Plus size={18} /></button>
                   </div>
                   
@@ -881,8 +871,12 @@ export default function App() {
                   </div>
                 </div>
 
-                {paymentAmount && parseFloat(paymentAmount) >= totalAmount && (
-                  <div className="flex justify-between items-center mb-3 p-2.5 bg-green-50 rounded-xl border border-green-200"><span className="text-xs font-bold text-green-800">Kembalian</span><span className="text-lg font-black text-green-700">{formatRupiah(changeAmount)}</span></div>
+                {/* PERBAIKAN: KEMBALIAN SELALU MUNCUL MESKI UANG KURANG (Real-Time) */}
+                {paymentAmount !== "" && (
+                  <div className={`flex justify-between items-center mb-3 p-2.5 rounded-xl border ${changeAmount < 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+                    <span className={`text-xs font-bold ${changeAmount < 0 ? 'text-red-800' : 'text-green-800'}`}>{changeAmount < 0 ? 'Uang Kurang' : 'Kembalian'}</span>
+                    <span className={`text-lg font-black ${changeAmount < 0 ? 'text-red-700' : 'text-green-700'}`}>{formatRupiah(Math.abs(changeAmount))}</span>
+                  </div>
                 )}
 
                 <button onClick={handleCheckout} disabled={cart.length === 0} className={`w-full py-3 md:py-3.5 rounded-xl font-bold text-sm md:text-base flex justify-center items-center gap-2 transition-all ${cart.length === 0 ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 text-white shadow-[0_4px_14px_0_rgb(220,38,38,0.39)] active:scale-[0.98]'}`}><CheckCircle2 size={20} /> Proses Pembayaran</button>
@@ -1153,7 +1147,7 @@ export default function App() {
         )}
       </div>
 
-      {/* Navigasi Bawah (Bottom Navigation) Khusus Mobile */}
+      {/* Navigasi Bawah Khusus Mobile */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 pb-safe flex justify-around items-center px-1 py-1.5 shadow-[0_-4px_10px_rgb(0,0,0,0.05)]">
         <button onClick={() => { setActiveTab("kasir"); setShowMobileCart(false); }} className={`flex flex-col items-center p-2 w-1/4 ${activeTab === "kasir" ? "text-red-600" : "text-slate-400"}`}>
           <ShoppingCart size={20} className={activeTab === "kasir" ? "fill-red-100" : ""} />
@@ -1175,11 +1169,7 @@ export default function App() {
         )}
       </nav>
 
-      {/* ==========================================
-          MODALS
-      ========================================== */}
-      
-      {/* Modal Struk / Nota */}
+      {/* MODALS */}
       {(showReceipt || viewingReceipt) && (() => {
         const data = showReceipt ? receiptData : viewingReceipt;
         const isCheckout = showReceipt;
