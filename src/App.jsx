@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 // IMPORT FIREBASE
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { Search, ShoppingCart, Plus, Minus, Trash2, ReceiptText, Package, CheckCircle2, AlertCircle, X, FileText, BarChart3, Clock, Calendar, Filter, ListOrdered, Eye, User, Lock, LogOut, Edit3, ArrowUpDown, ChevronDown, TrendingUp, Activity, Download, Image as ImageIcon, LayoutGrid, List } from 'lucide-react';
+import { Search, ShoppingCart, Plus, Minus, Trash2, ReceiptText, Package, CheckCircle2, AlertCircle, X, FileText, BarChart3, Clock, Calendar, Filter, ListOrdered, Eye, User, Lock, LogOut, Edit3, ArrowUpDown, ChevronDown, TrendingUp, Activity, Download, Image as ImageIcon, LayoutGrid, List, ClipboardList, Wallet, TrendingDown } from 'lucide-react';
 
 // ==========================================
 // KONFIGURASI FIREBASE ANDA
@@ -67,7 +67,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("kasir");
   const [laporanTab, setLaporanTab] = useState("penjualan");
   const [showMobileCart, setShowMobileCart] = useState(false); 
-  const [viewMode, setViewMode] = useState("grid"); 
+  const [viewMode, setViewMode] = useState("list"); 
   const [showCategoryMenu, setShowCategoryMenu] = useState(false); 
   
   // State untuk Tambah & Edit Barang (Khusus Admin)
@@ -82,6 +82,22 @@ export default function App() {
   // State untuk Laporan & Transaksi
   const [viewingReceipt, setViewingReceipt] = useState(null);
   const [transactionToDelete, setTransactionToDelete] = useState(null);
+
+  // ==========================================
+  // STATE BARU: STOCK OPNAME (Khusus Admin, Berdiri Sendiri)
+  // ==========================================
+  const [opnameData, setOpnameData] = useState([]);
+  const [opnamePeriod, setOpnamePeriod] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; // Default bulan ini YYYY-MM
+  });
+  const [showOpnameModal, setShowOpnameModal] = useState(false);
+  const [opnameForm, setOpnameForm] = useState(() => {
+    const d = new Date();
+    const localDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { id: '', date: localDate, itemName: '', prevStock: '', inQty: '', buyPrice: '', outQty: '', sellPrice: '' };
+  });
+  const [opnameToDelete, setOpnameToDelete] = useState(null);
   
   // Fungsi pembantu tanggal
   const getLocalDateString = (date) => {
@@ -97,25 +113,26 @@ export default function App() {
   // ==========================================
   useEffect(() => {
     const unsubscribeProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
-      const productsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setProducts(productsData);
     });
 
     const unsubscribeSales = onSnapshot(collection(db, 'sales'), (snapshot) => {
-      const salesData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const salesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       salesData.sort((a, b) => b.timestamp - a.timestamp);
       setSalesHistory(salesData);
+    });
+
+    // Listener khusus Stock Opname
+    const unsubscribeOpname = onSnapshot(collection(db, 'stock_opname'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setOpnameData(data);
     });
 
     return () => {
       unsubscribeProducts();
       unsubscribeSales();
+      unsubscribeOpname();
     };
   }, []);
 
@@ -126,7 +143,7 @@ export default function App() {
     const { username, password } = loginForm;
 
     if (username === 'yoga' && password === 'yoga123') {
-      const user = { username: 'Administrator', role: 'admin' };
+      const user = { username: 'Admin', role: 'admin' };
       setCurrentUser(user);
       localStorage.setItem('koperasiUser', JSON.stringify(user));
       setLoginForm({ username: '', password: '' });
@@ -172,11 +189,8 @@ export default function App() {
       return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
     });
 
-  // ==========================================
-  // PERBAIKAN: SORTING GUDANG (STOK, TERBARU, TERLAMA)
-  // ==========================================
+  // SORTING GUDANG (STOK, TERBARU, TERLAMA)
   const sortedProducts = React.useMemo(() => {
-    // 1. Lakukan pencarian teks terlebih dahulu
     let sortableItems = [...products.filter(p => {
       const sQ = searchQuery.toLowerCase();
       const matchName = (p.name || "").toLowerCase().includes(sQ);
@@ -185,22 +199,18 @@ export default function App() {
       return matchName || matchCat || matchCode;
     })];
 
-    // 2. Terapkan logika sorting yang akurat
     sortableItems.sort((a, b) => {
       if (sortConfig.key === 'stock') {
-        // PENTING: Konversi ke angka secara paksa agar terhindar dari error teks di database
         const stockA = Number(a.stock) || 0;
         const stockB = Number(b.stock) || 0;
         return sortConfig.direction === 'asc' ? stockA - stockB : stockB - stockA;
       } 
       else if (sortConfig.key === 'createdAt') {
-        // Waktu pembuatan (Barang lama yang tidak punya createdAt dianggap angka 0)
         const timeA = a.createdAt || 0;
         const timeB = b.createdAt || 0;
         return sortConfig.direction === 'asc' ? timeA - timeB : timeB - timeA;
       } 
       else {
-        // Default (Nama A-Z)
         const nameA = a.name || "";
         const nameB = b.name || "";
         return sortConfig.direction === 'asc' 
@@ -283,7 +293,7 @@ export default function App() {
     });
   };
 
-  // --- FUNGSI TRANSAKSI & CHECKOUT (KE FIREBASE) ---
+  // --- FUNGSI TRANSAKSI & CHECKOUT ---
   const totalAmount = cart.reduce((sum, item) => sum + (item.price * (item.qty || 0)), 0);
   const changeAmount = parseFloat(paymentAmount || 0) - totalAmount;
 
@@ -319,14 +329,35 @@ export default function App() {
 
       const docRef = await addDoc(collection(db, 'sales'), transactionData);
       
+      const opnameDateStr = `${y}-${mo}-${d}`;
+      const opnamePeriodStr = `${y}-${mo}`;
+
       for (const item of cart) {
         const productRef = doc(db, 'products', item.id);
         const originalProduct = products.find(p => p.id === item.id);
+        
         if (originalProduct) {
+          // Update stok gudang
           await updateDoc(productRef, {
             stock: originalProduct.stock - item.qty
           });
         }
+
+        // AUTO INSERT KE OPNAME
+        const opnameData = {
+          period: opnamePeriodStr,
+          date: opnameDateStr,
+          itemName: item.name,
+          prevStock: originalProduct ? originalProduct.stock : 0,
+          inQty: 0,
+          buyPrice: item.buyPrice || originalProduct?.buyPrice || 0,
+          outQty: item.qty,
+          sellPrice: item.price,
+          timestamp: Date.now(),
+          trxId: docRef.id,
+          isAuto: true
+        };
+        await addDoc(collection(db, 'stock_opname'), opnameData);
       }
 
       setReceiptData({ ...transactionData, id: docRef.id });
@@ -357,7 +388,7 @@ export default function App() {
         price: parseFloat(newProduct.price),
         stock: parseInt(newProduct.stock, 10),
         category: newProduct.category || "Sembako",
-        createdAt: Date.now() // PERBAIKAN: Catat waktu simpan agar fitur sorting "Terakhir Ditambahkan" berfungsi
+        createdAt: Date.now() 
       });
 
       setShowAddModal(false);
@@ -396,6 +427,7 @@ export default function App() {
     if (!transactionToDelete) return;
 
     try {
+      // 1. Kembalikan stok ke gudang
       for (const item of transactionToDelete.items) {
         const productRef = doc(db, 'products', item.id);
         const originalProduct = products.find(p => p.id === item.id);
@@ -406,13 +438,103 @@ export default function App() {
         }
       }
 
+      // 2. Hapus dari riwayat transaksi
       await deleteDoc(doc(db, 'sales', transactionToDelete.id));
+
+      // 3. Hapus otomatis dari catatan Opname yang berkaitan dengan transaksi ini
+      const opnamesToDelete = opnameData.filter(op => op.trxId === transactionToDelete.id);
+      for (const op of opnamesToDelete) {
+        await deleteDoc(doc(db, 'stock_opname', op.id));
+      }
+
       setTransactionToDelete(null);
     } catch (error) {
       setErrorMsg("Gagal membatalkan transaksi.");
     }
   };
 
+  // ==========================================
+  // FUNGSI STOCK OPNAME (ADMIN ONLY, STANDALONE)
+  // ==========================================
+  const handleOpnameProductSelect = (e) => {
+    const selectedId = e.target.value;
+    if (!selectedId) return;
+    const prod = products.find(p => p.id === selectedId);
+    if (prod) {
+      setOpnameForm(prev => ({
+        ...prev,
+        itemName: prod.name,
+        buyPrice: prod.buyPrice || 0,
+        sellPrice: prod.price || 0,
+        prevStock: prod.stock || 0
+      }));
+    }
+  };
+
+  const handleSaveOpname = async (e) => {
+    e.preventDefault();
+    try {
+      const dynamicPeriod = opnameForm.date ? opnameForm.date.substring(0, 7) : opnamePeriod;
+
+      const dataToSave = {
+        period: dynamicPeriod,
+        date: opnameForm.date,
+        itemName: opnameForm.itemName,
+        prevStock: Number(opnameForm.prevStock) || 0,
+        inQty: Number(opnameForm.inQty) || 0,
+        buyPrice: Number(opnameForm.buyPrice) || 0,
+        outQty: Number(opnameForm.outQty) || 0,
+        sellPrice: Number(opnameForm.sellPrice) || 0,
+        timestamp: opnameForm.timestamp || Date.now()
+      };
+
+      if (opnameForm.isAuto) dataToSave.isAuto = true;
+      if (opnameForm.trxId) dataToSave.trxId = opnameForm.trxId;
+
+      if (opnameForm.id) {
+        await updateDoc(doc(db, 'stock_opname', opnameForm.id), dataToSave);
+      } else {
+        await addDoc(collection(db, 'stock_opname'), dataToSave);
+      }
+      
+      setShowOpnameModal(false);
+      
+      // Reset form dengan tanggal hari ini
+      const d = new Date();
+      const localDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      setOpnameForm({ id: '', date: localDate, itemName: '', prevStock: '', inQty: '', buyPrice: '', outQty: '', sellPrice: '' });
+      setErrorMsg("");
+    } catch (error) {
+      setErrorMsg("Gagal menyimpan data opname.");
+    }
+  };
+
+  const executeDeleteOpname = async () => {
+    if (!opnameToDelete) return;
+    try {
+      await deleteDoc(doc(db, 'stock_opname', opnameToDelete));
+      setOpnameToDelete(null);
+    } catch (error) {
+      setErrorMsg("Gagal menghapus catatan opname.");
+    }
+  };
+
+  const filteredOpnameData = opnameData
+    .filter(item => item.period === opnamePeriod)
+    .sort((a, b) => {
+      // Urutkan berdasarkan Tanggal dulu, baru berdasarkan waktu input (timestamp)
+      const dateA = new Date(a.date || 0).getTime();
+      const dateB = new Date(b.date || 0).getTime();
+      if (dateB !== dateA) return dateB - dateA;
+      return b.timestamp - a.timestamp;
+    });
+
+  // Kalkulasi Ringkasan Keuangan Opname Bulan Ini
+  const opnameTotalPembelian = filteredOpnameData.reduce((sum, item) => sum + (item.inQty * item.buyPrice), 0);
+  const opnameTotalOmset = filteredOpnameData.reduce((sum, item) => sum + (item.outQty * item.sellPrice), 0);
+  const opnameTotalLaba = filteredOpnameData.reduce((sum, item) => sum + ((item.outQty * item.sellPrice) - (item.outQty * item.buyPrice)), 0);
+
+  // --- REPORT GENERATION ---
   const downloadReceiptJPG = (data) => {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -744,7 +866,10 @@ export default function App() {
             <button onClick={() => setActiveTab("transaksi")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${activeTab === "transaksi" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><ListOrdered size={16} /> Transaksi</button>
             <button onClick={() => setActiveTab("laporan")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${activeTab === "laporan" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><BarChart3 size={16} /> Laporan</button>
             {currentUser.role === 'admin' && (
-              <button onClick={() => setActiveTab("gudang")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${activeTab === "gudang" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><Package size={16} /> Gudang</button>
+              <>
+                <button onClick={() => setActiveTab("gudang")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${activeTab === "gudang" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><Package size={16} /> Gudang</button>
+                <button onClick={() => setActiveTab("opname")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${activeTab === "opname" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><ClipboardList size={16} /> Opname</button>
+              </>
             )}
           </div>
           <div className="flex items-center gap-3 border-l border-red-500 pl-4">
@@ -992,12 +1117,15 @@ export default function App() {
                   </div>
                 </div>
 
-                {paymentAmount !== "" && (
-                  <div className={`flex justify-between items-center mb-3 p-2.5 rounded-xl border ${changeAmount < 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
-                    <span className={`text-xs font-bold ${changeAmount < 0 ? 'text-red-800' : 'text-green-800'}`}>{changeAmount < 0 ? 'Uang Kurang' : 'Kembalian'}</span>
-                    <span className={`text-lg font-black ${changeAmount < 0 ? 'text-red-700' : 'text-green-700'}`}>{formatRupiah(Math.abs(changeAmount))}</span>
-                  </div>
-                )}
+                {/* Kolom Kembalian/Status selalu tampil agar tidak mengganggu posisi tombol di HP */}
+                <div className={`flex justify-between items-center mb-3 p-2.5 rounded-xl border transition-colors ${totalAmount === 0 && !paymentAmount ? 'bg-slate-50 border-slate-200' : changeAmount < 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+                  <span className={`text-xs font-bold ${totalAmount === 0 && !paymentAmount ? 'text-slate-500' : changeAmount < 0 ? 'text-red-800' : 'text-green-800'}`}>
+                    {totalAmount === 0 && !paymentAmount ? 'Status Bayar' : changeAmount < 0 ? 'Uang Kurang' : 'Kembalian'}
+                  </span>
+                  <span className={`text-lg font-black ${totalAmount === 0 && !paymentAmount ? 'text-slate-400' : changeAmount < 0 ? 'text-red-700' : 'text-green-700'}`}>
+                    {totalAmount === 0 && !paymentAmount ? '-' : formatRupiah(Math.abs(changeAmount))}
+                  </span>
+                </div>
 
                 <button onClick={handleCheckout} disabled={cart.length === 0} className={`w-full py-3 md:py-3.5 rounded-xl font-bold text-sm md:text-base flex justify-center items-center gap-2 transition-all ${cart.length === 0 ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 text-white shadow-[0_4px_14px_0_rgb(220,38,38,0.39)] active:scale-[0.98]'}`}><CheckCircle2 size={20} /> Proses Pembayaran</button>
               </div>
@@ -1221,7 +1349,6 @@ export default function App() {
                   <button onClick={() => setShowSortMenu(!showSortMenu)} className="w-full bg-white border border-slate-300 text-slate-700 px-4 py-2.5 rounded-lg text-sm font-bold flex justify-center items-center gap-2 relative transition-colors hover:bg-slate-50">
                     <ArrowUpDown size={16} /> Urutkan
                   </button>
-                  {/* PERBAIKAN: Menu Dropdown Sorting Gudang */}
                   {showSortMenu && (
                     <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-xl z-20 p-3 text-left">
                       <div className="space-y-2">
@@ -1275,31 +1402,200 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* Konten STOCK OPNAME (Berdiri Sendiri) */}
+        {activeTab === "opname" && currentUser.role === 'admin' && (
+          <div className="h-full overflow-y-auto p-2 md:p-4 pb-20 md:pb-4 bg-slate-50">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3 md:p-6 w-full max-w-7xl mx-auto">
+              
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-6 border-b border-slate-100 pb-4">
+                <div>
+                  <h2 className="text-lg md:text-2xl font-bold text-slate-800 flex items-center gap-2">
+                    <ClipboardList className="text-indigo-600 w-5 h-5 md:w-6 md:h-6" /> Stock Opname Bulanan
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-1">Catatan keuangan & fisik barang berdiri sendiri (tidak memotong gudang kasir).</p>
+                </div>
+                <div className="flex gap-2 w-full md:w-auto">
+                  <input 
+                    type="month" 
+                    className="flex-1 md:w-auto px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold focus:ring-2 focus:ring-indigo-500"
+                    value={opnamePeriod}
+                    onChange={(e) => setOpnamePeriod(e.target.value)}
+                  />
+                  <button onClick={() => {
+                    const d = new Date();
+                    const localDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                    setOpnameForm({ id: '', date: localDate, itemName: '', prevStock: '', inQty: '', buyPrice: '', outQty: '', sellPrice: '' });
+                    setShowOpnameModal(true);
+                  }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold flex justify-center items-center gap-2 transition-colors">
+                    <Plus size={16} /> <span className="hidden md:inline">Tambah Catatan</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Ringkasan Finansial Bulanan */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+                <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm flex items-start gap-3">
+                  <div className="p-2 bg-red-100 text-red-600 rounded-lg shrink-0"><TrendingDown size={24} /></div>
+                  <div>
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Total Modal Beli</p>
+                    <h3 className="text-lg md:text-xl font-black text-slate-800">{formatRupiah(opnameTotalPembelian)}</h3>
+                  </div>
+                </div>
+                <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm flex items-start gap-3">
+                  <div className="p-2 bg-green-100 text-green-600 rounded-lg shrink-0"><TrendingUp size={24} /></div>
+                  <div>
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Total Omset Keluar</p>
+                    <h3 className="text-lg md:text-xl font-black text-slate-800">{formatRupiah(opnameTotalOmset)}</h3>
+                  </div>
+                </div>
+                <div className={`p-4 rounded-xl shadow-sm flex items-start gap-3 text-white ${opnameTotalLaba >= 0 ? 'bg-gradient-to-br from-indigo-500 to-indigo-600' : 'bg-gradient-to-br from-red-500 to-red-600'}`}>
+                  <div className="p-2 bg-white/20 rounded-lg shrink-0"><Wallet size={24} /></div>
+                  <div>
+                    <p className="text-xs font-bold text-white/80 uppercase tracking-wider mb-1">Estimasi Laba Kotor</p>
+                    <h3 className="text-lg md:text-xl font-black">{formatRupiah(opnameTotalLaba)}</h3>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tabel Opname */}
+              <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full text-left border-collapse whitespace-nowrap">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-[10px] md:text-xs">
+                      <th className="px-3 py-3 font-bold">Tanggal</th>
+                      <th className="px-3 py-3 font-bold">Nama Barang</th>
+                      <th className="px-3 py-3 font-bold text-center">Stok Awal</th>
+                      <th className="px-3 py-3 font-bold text-center bg-blue-50/50">Jml Masuk</th>
+                      <th className="px-3 py-3 font-bold text-right bg-blue-50/50">Modal/Pcs</th>
+                      <th className="px-3 py-3 font-bold text-center bg-green-50/50">Jml Keluar</th>
+                      <th className="px-3 py-3 font-bold text-right bg-green-50/50">Jual/Pcs</th>
+                      <th className="px-3 py-3 font-bold text-center bg-indigo-50 text-indigo-700">Sisa Akhir</th>
+                      <th className="px-3 py-3 font-bold text-center">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredOpnameData.length === 0 ? (
+                      <tr>
+                        <td colSpan="9" className="px-4 py-8 text-center text-slate-400 text-sm">Belum ada catatan opname di bulan ini.</td>
+                      </tr>
+                    ) : (
+                      filteredOpnameData.map((item) => {
+                        const finalStock = item.prevStock + item.inQty - item.outQty;
+                        return (
+                          <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50 bg-white">
+                            <td className="px-3 py-2.5 text-xs text-slate-500 font-mono">{item.date}</td>
+                            <td className="px-3 py-2.5 text-xs md:text-sm font-bold text-slate-800">
+                              {item.itemName}
+                              {item.isAuto && <span className="ml-1.5 text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded border border-red-200" title="Otomatis dari Kasir">Kasir</span>}
+                            </td>
+                            <td className="px-3 py-2.5 text-xs text-center font-mono text-slate-500">{item.prevStock}</td>
+                            <td className="px-3 py-2.5 text-xs text-center font-bold text-blue-600 bg-blue-50/10">+{item.inQty}</td>
+                            <td className="px-3 py-2.5 text-xs text-right text-slate-600 bg-blue-50/10">{formatRupiah(item.buyPrice)}</td>
+                            <td className="px-3 py-2.5 text-xs text-center font-bold text-green-600 bg-green-50/10">-{item.outQty}</td>
+                            <td className="px-3 py-2.5 text-xs text-right text-slate-600 bg-green-50/10">{formatRupiah(item.sellPrice)}</td>
+                            <td className="px-3 py-2.5 text-xs md:text-sm text-center font-black text-indigo-600 bg-indigo-50/30">{finalStock}</td>
+                            <td className="px-3 py-2.5 flex justify-center gap-1.5">
+                              <button onClick={() => { setOpnameForm(item); setShowOpnameModal(true); }} className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100" title="Edit"><Edit3 size={14} /></button>
+                              <button onClick={() => setOpnameToDelete(item.id)} className="p-1.5 bg-red-50 text-red-600 rounded hover:bg-red-100" title="Hapus"><Trash2 size={14} /></button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* List Opname (Khusus Mobile: Responsive Mode) */}
+              <div className="md:hidden flex flex-col gap-3">
+                {filteredOpnameData.length === 0 ? (
+                  <div className="p-6 text-center text-slate-400 text-sm bg-white rounded-xl border border-slate-200">Belum ada catatan opname di bulan ini.</div>
+                ) : (
+                  filteredOpnameData.map((item) => {
+                    const finalStock = item.prevStock + item.inQty - item.outQty;
+                    return (
+                      <div key={item.id} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm relative overflow-hidden">
+                        {/* Pita kecil penanda input kasir */}
+                        {item.isAuto && <div className="absolute -right-6 top-2 bg-red-100 text-red-600 text-[8px] font-bold py-0.5 px-6 rotate-45 border border-red-200">KASIR</div>}
+                        
+                        <div className="flex justify-between items-start border-b border-slate-100 pb-2 mb-2">
+                          <div className="pr-6">
+                            <span className="text-[10px] text-slate-400 font-mono block mb-0.5">{item.date}</span>
+                            <h4 className="text-sm font-bold text-slate-800">{item.itemName}</h4>
+                          </div>
+                          <div className="flex gap-1 shrink-0">
+                            <button onClick={() => { setOpnameForm(item); setShowOpnameModal(true); }} className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"><Edit3 size={14} /></button>
+                            <button onClick={() => setOpnameToDelete(item.id)} className="p-1.5 bg-red-50 text-red-600 rounded hover:bg-red-100"><Trash2 size={14} /></button>
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-3 gap-2 text-center mb-2">
+                          <div className="bg-slate-50 p-1.5 rounded">
+                            <span className="block text-[9px] text-slate-500 font-medium">Awal</span>
+                            <span className="text-xs font-mono font-bold text-slate-700">{item.prevStock}</span>
+                          </div>
+                          <div className="bg-blue-50/50 p-1.5 rounded">
+                            <span className="block text-[9px] text-blue-600 font-medium">Masuk</span>
+                            <span className="text-xs font-mono font-bold text-blue-700">+{item.inQty}</span>
+                          </div>
+                          <div className="bg-green-50/50 p-1.5 rounded">
+                            <span className="block text-[9px] text-green-600 font-medium">Keluar</span>
+                            <span className="text-xs font-mono font-bold text-green-700">-{item.outQty}</span>
+                          </div>
+                        </div>
+                        
+                        <div className="flex justify-between items-center bg-indigo-50/30 p-2 rounded border border-indigo-50">
+                          <div className="flex flex-col">
+                            <span className="text-[9px] text-slate-500 font-medium">Modal: <b className="text-slate-700">{formatRupiah(item.buyPrice)}</b></span>
+                            <span className="text-[9px] text-slate-500 font-medium">Jual: <b className="text-slate-700">{formatRupiah(item.sellPrice)}</b></span>
+                          </div>
+                          <div className="text-right">
+                            <span className="block text-[10px] text-indigo-500 font-bold uppercase leading-none mb-1">Sisa Akhir</span>
+                            <span className="text-sm font-black text-indigo-700 leading-none">{finalStock}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Navigasi Bawah Khusus Mobile */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 pb-safe flex justify-around items-center px-1 py-1.5 shadow-[0_-4px_10px_rgb(0,0,0,0.05)]">
-        <button onClick={() => { setActiveTab("kasir"); setShowMobileCart(false); }} className={`flex flex-col items-center p-2 w-1/4 ${activeTab === "kasir" ? "text-red-600" : "text-slate-400"}`}>
+        <button onClick={() => { setActiveTab("kasir"); setShowMobileCart(false); }} className={`flex flex-col items-center p-2 ${currentUser.role === 'admin' ? 'w-1/5' : 'w-1/4'} ${activeTab === "kasir" ? "text-red-600" : "text-slate-400"}`}>
           <ShoppingCart size={20} className={activeTab === "kasir" ? "fill-red-100" : ""} />
           <span className="text-[10px] font-bold mt-1">Kasir</span>
         </button>
-        <button onClick={() => setActiveTab("transaksi")} className={`flex flex-col items-center p-2 w-1/4 ${activeTab === "transaksi" ? "text-red-600" : "text-slate-400"}`}>
+        <button onClick={() => setActiveTab("transaksi")} className={`flex flex-col items-center p-2 ${currentUser.role === 'admin' ? 'w-1/5' : 'w-1/4'} ${activeTab === "transaksi" ? "text-red-600" : "text-slate-400"}`}>
           <ListOrdered size={20} />
           <span className="text-[10px] font-bold mt-1">Transaksi</span>
         </button>
-        <button onClick={() => setActiveTab("laporan")} className={`flex flex-col items-center p-2 w-1/4 ${activeTab === "laporan" ? "text-red-600" : "text-slate-400"}`}>
+        <button onClick={() => setActiveTab("laporan")} className={`flex flex-col items-center p-2 ${currentUser.role === 'admin' ? 'w-1/5' : 'w-1/4'} ${activeTab === "laporan" ? "text-red-600" : "text-slate-400"}`}>
           <BarChart3 size={20} />
           <span className="text-[10px] font-bold mt-1">Laporan</span>
         </button>
         {currentUser.role === 'admin' && (
-          <button onClick={() => setActiveTab("gudang")} className={`flex flex-col items-center p-2 w-1/4 ${activeTab === "gudang" ? "text-red-600" : "text-slate-400"}`}>
-            <Package size={20} />
-            <span className="text-[10px] font-bold mt-1">Gudang</span>
-          </button>
+          <>
+            <button onClick={() => setActiveTab("gudang")} className={`flex flex-col items-center p-2 w-1/5 ${activeTab === "gudang" ? "text-red-600" : "text-slate-400"}`}>
+              <Package size={20} />
+              <span className="text-[10px] font-bold mt-1">Gudang</span>
+            </button>
+            <button onClick={() => setActiveTab("opname")} className={`flex flex-col items-center p-2 w-1/5 ${activeTab === "opname" ? "text-indigo-600" : "text-slate-400"}`}>
+              <ClipboardList size={20} />
+              <span className="text-[10px] font-bold mt-1">Opname</span>
+            </button>
+          </>
         )}
       </nav>
 
       {/* MODALS */}
+      {/* Modal Nota Penjualan */}
       {(showReceipt || viewingReceipt) && (() => {
         const data = showReceipt ? receiptData : viewingReceipt;
         const isCheckout = showReceipt;
@@ -1347,9 +1643,9 @@ export default function App() {
         );
       })()}
 
-      {/* Modal Tambah Barang */}
+      {/* Modal Tambah Barang Gudang */}
       {showAddModal && currentUser.role === 'admin' && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-4 z-50">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-4 z-[60]">
           <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
             <div className="p-3 md:p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
               <h3 className="text-sm md:text-base font-bold text-slate-800 flex items-center gap-2"><Package size={18} className="text-red-600" /> Tambah Barang</h3>
@@ -1386,9 +1682,9 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal Edit Barang */}
+      {/* Modal Edit Barang Gudang */}
       {editingProduct && currentUser.role === 'admin' && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-4 z-50">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-4 z-[60]">
           <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
             <div className="p-3 md:p-4 border-b border-slate-100 flex justify-between items-center bg-blue-50 shrink-0">
               <h3 className="text-sm md:text-base font-bold text-slate-800 flex items-center gap-2"><Edit3 size={18} className="text-blue-600" /> Edit Barang</h3>
@@ -1425,9 +1721,9 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal Konfirmasi Hapus Transaksi */}
+      {/* Modal Konfirmasi Hapus Transaksi Gudang/POS */}
       {transactionToDelete && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
           <div className="bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl p-5 text-center">
             <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-3"><AlertCircle size={28} /></div>
             <h3 className="text-lg font-black text-slate-800 mb-1">Batalkan Transaksi?</h3>
@@ -1439,6 +1735,100 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* =========================================
+          MODALS BARU UNTUK STOCK OPNAME 
+          ========================================= */}
+      
+      {/* Modal Form Tambah/Edit Opname */}
+      {showOpnameModal && currentUser.role === 'admin' && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-4 z-[60]">
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="p-3 md:p-4 border-b border-slate-100 flex justify-between items-center bg-indigo-50 shrink-0">
+              <h3 className="text-sm md:text-base font-bold text-slate-800 flex items-center gap-2">
+                <ClipboardList size={18} className="text-indigo-600" /> {opnameForm.id ? 'Edit Catatan Opname' : 'Catat Opname Baru'}
+              </h3>
+              <button onClick={() => setShowOpnameModal(false)} className="bg-white p-1.5 rounded-full"><X size={18} /></button>
+            </div>
+            
+            <form onSubmit={handleSaveOpname} className="p-4 md:p-6 space-y-4 overflow-y-auto">
+              
+              <div className="bg-indigo-50/50 p-3 rounded-xl border border-indigo-100">
+                <label className="block text-[10px] font-bold text-indigo-800 uppercase mb-1">Pintasan: Ambil Data Gudang</label>
+                <select className="w-full px-3 py-2 border border-indigo-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500" onChange={handleOpnameProductSelect} defaultValue="">
+                  <option value="" disabled>-- Pilih Barang untuk Auto-Isi --</option>
+                  {products.map(p => <option key={p.id} value={p.id}>{p.name} (Stok Gudang: {p.stock})</option>)}
+                </select>
+                <p className="text-[9px] text-indigo-600 mt-1">*Memilih barang di atas akan otomatis mengisi nama dan harga di bawah, namun Anda bebas mengubahnya.</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Tanggal</label>
+                  <input type="date" required className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm" value={opnameForm.date || ''} onChange={e => setOpnameForm({...opnameForm, date: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Nama / Deskripsi</label>
+                  <input type="text" required className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm" placeholder="Misal: Beras 5Kg" value={opnameForm.itemName} onChange={e => setOpnameForm({...opnameForm, itemName: e.target.value})} />
+                </div>
+              </div>
+              
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-2">Pergerakan Fisik (Qty)</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-700 mb-1">Sisa Lalu</label>
+                    <input type="number" required className="w-full px-2 py-2 border rounded-md text-xs font-mono" placeholder="0" value={opnameForm.prevStock} onChange={e => setOpnameForm({...opnameForm, prevStock: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-700 mb-1">Jml Masuk</label>
+                    <input type="number" required className="w-full px-2 py-2 border rounded-md text-xs font-mono" placeholder="0" value={opnameForm.inQty} onChange={e => setOpnameForm({...opnameForm, inQty: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-700 mb-1">Jml Keluar</label>
+                    <input type="number" required className="w-full px-2 py-2 border rounded-md text-xs font-mono" placeholder="0" value={opnameForm.outQty} onChange={e => setOpnameForm({...opnameForm, outQty: e.target.value})} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-2">Nilai Uang (Per Satuan/Pcs)</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-700 mb-1">Harga Beli/Modal (Rp)</label>
+                    <input type="number" required className="w-full px-2 py-2 border rounded-md text-xs font-mono" placeholder="10000" value={opnameForm.buyPrice} onChange={e => setOpnameForm({...opnameForm, buyPrice: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-700 mb-1">Harga Jual/Omset (Rp)</label>
+                    <input type="number" required className="w-full px-2 py-2 border rounded-md text-xs font-mono" placeholder="12000" value={opnameForm.sellPrice} onChange={e => setOpnameForm({...opnameForm, sellPrice: e.target.value})} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button type="button" onClick={() => setShowOpnameModal(false)} className="flex-1 py-2.5 bg-slate-200 font-bold rounded-lg text-sm text-slate-700 hover:bg-slate-300">Batal</button>
+                <button type="submit" className="flex-1 py-2.5 bg-indigo-600 text-white font-bold rounded-lg text-sm hover:bg-indigo-700">Simpan Catatan</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Hapus Opname */}
+      {opnameToDelete && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
+          <div className="bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl p-5 text-center">
+            <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-3"><AlertCircle size={28} /></div>
+            <h3 className="text-lg font-black text-slate-800 mb-1">Hapus Catatan?</h3>
+            <p className="text-slate-500 text-xs mb-5">Catatan opname ini akan dihapus secara permanen.</p>
+            <div className="flex gap-2">
+              <button onClick={() => setOpnameToDelete(null)} className="flex-1 py-2 bg-slate-100 font-bold rounded-lg text-xs text-slate-700 hover:bg-slate-200">Kembali</button>
+              <button onClick={executeDeleteOpname} className="flex-1 py-2 bg-red-600 text-white font-bold rounded-lg text-xs hover:bg-red-700">Ya, Hapus</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
