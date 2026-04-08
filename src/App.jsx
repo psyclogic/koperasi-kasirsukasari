@@ -55,6 +55,7 @@ export default function App() {
   
   const [cart, setCart] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("Semua"); // STATE BARU UNTUK FILTER KASIR
   const [searchTrxQuery, setSearchTrxQuery] = useState("");
   const [customerName, setCustomerName] = useState(""); 
   const [paymentAmount, setPaymentAmount] = useState("");
@@ -154,30 +155,27 @@ export default function App() {
   };
 
   // ==========================================
-  // PERBAIKAN: SORTING BARANG DI KASIR
+  // PERBAIKAN: SORTING A-Z & FILTER KATEGORI KASIR
   // ==========================================
   const filteredProducts = products
-    .filter(p => 
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      p.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (p.code && p.code.toLowerCase().includes(searchQuery.toLowerCase()))
-    )
-    .sort((a, b) => {
-      // 1. Urutkan berdasarkan Nomor/Kode Barang terlebih dahulu (Alfanumerik)
-      const codeA = a.code || "";
-      const codeB = b.code || "";
-      const codeComp = codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+    .filter(p => {
+      const matchSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          p.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          (p.code && p.code.toLowerCase().includes(searchQuery.toLowerCase()));
+      const matchCategory = selectedCategory === "Semua" || p.category === selectedCategory;
       
-      if (codeComp !== 0) return codeComp;
-
-      // 2. Jika kode sama atau tidak ada, urutkan berdasarkan Nama Barang (A-Z)
+      return matchSearch && matchCategory;
+    })
+    .sort((a, b) => {
+      // Langsung urutkan berdasarkan Nama Barang (A-Z)
       const nameA = a.name || "";
       const nameB = b.name || "";
       return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
     });
 
+  // Fitur Sorting untuk Menu Gudang
   const sortedProducts = React.useMemo(() => {
-    let sortableItems = [...filteredProducts];
+    let sortableItems = [...products.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.category.toLowerCase().includes(searchQuery.toLowerCase()) || (p.code && p.code.toLowerCase().includes(searchQuery.toLowerCase())))];
     sortableItems.sort((a, b) => {
       let valA = a[sortConfig.key];
       let valB = b[sortConfig.key];
@@ -190,7 +188,7 @@ export default function App() {
       return 0;
     });
     return sortableItems;
-  }, [filteredProducts, sortConfig]);
+  }, [products, searchQuery, sortConfig]);
 
   // --- FUNGSI KERANJANG & PEMBAYARAN ---
   const addToCart = (product) => {
@@ -752,10 +750,33 @@ export default function App() {
             
             {/* Kolom Kiri: Produk */}
             <section className="flex-1 bg-white md:rounded-xl md:shadow-sm border-r md:border border-slate-200 flex flex-col h-full overflow-hidden w-full pb-16 md:pb-0 relative z-0">
-              <div className="p-3 md:p-4 border-b border-slate-100 bg-white shadow-sm z-10">
-                <div className="relative">
-                  <input type="text" placeholder="Cari nama / kode barang..." className="w-full pl-9 pr-3 py-2.5 md:py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500 transition-all" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+              
+              {/* PERBAIKAN UI: BAR PENCARIAN & FILTER SEJAJAR */}
+              <div className="p-3 md:p-4 border-b border-slate-100 bg-white shadow-sm z-10 flex gap-2">
+                <div className="relative flex-1">
+                  <input 
+                    type="text" 
+                    placeholder="Cari barang / kode..." 
+                    className="w-full pl-9 pr-3 py-2.5 md:py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500 transition-all" 
+                    value={searchQuery} 
+                    onChange={(e) => setSearchQuery(e.target.value)} 
+                  />
                   <Search className="absolute left-3 top-3 md:top-2.5 text-slate-400" size={18} />
+                </div>
+                
+                <div className="relative w-[35%] md:w-48 shrink-0">
+                  <select 
+                    value={selectedCategory} 
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    className="w-full h-full px-3 pr-8 py-2.5 md:py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-red-500 appearance-none text-slate-700 font-medium truncate"
+                  >
+                    <option value="Semua">Semua Kategori</option>
+                    {/* Ambil semua kategori unik dari list produk yang ada */}
+                    {[...new Set(products.map(p => p.category))].map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-3 md:top-2.5 text-slate-400 pointer-events-none" size={16} />
                 </div>
               </div>
 
