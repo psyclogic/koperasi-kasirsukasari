@@ -121,10 +121,10 @@ export default function App() {
     setLoginError('');
     const { username, password } = loginForm;
 
-    if (username === 'admin' && password === 'admin123') {
+    if (username === 'yoga' && password === 'yoga123') {
       setCurrentUser({ username: 'Administrator', role: 'admin' });
       setLoginForm({ username: '', password: '' });
-    } else if (username === 'kasir' && password === 'kasir123') {
+    } else if (username === 'ayu' && password === 'ayu123') {
       setCurrentUser({ username: 'Kasir 1', role: 'kasir' });
       setLoginForm({ username: '', password: '' });
     } else {
@@ -681,11 +681,6 @@ export default function App() {
               Masuk Sistem
             </button>
             
-            <div className="mt-4 pt-4 border-t border-slate-100 text-[10px] md:text-xs text-slate-400 text-center space-y-1">
-              <p>Demo Akses:</p>
-              <p>Admin: <span className="font-mono bg-slate-100 px-1 rounded text-slate-600">admin</span> / <span className="font-mono bg-slate-100 px-1 rounded text-slate-600">admin123</span></p>
-              <p>Kasir: <span className="font-mono bg-slate-100 px-1 rounded text-slate-600">kasir</span> / <span className="font-mono bg-slate-100 px-1 rounded text-slate-600">kasir123</span></p>
-            </div>
           </form>
         </div>
       </div>
