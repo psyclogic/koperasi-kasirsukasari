@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 // IMPORT FIREBASE
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { Search, ShoppingCart, Plus, Minus, Trash2, ReceiptText, Package, CheckCircle2, AlertCircle, X, FileText, BarChart3, Clock, Calendar, Filter, ListOrdered, Eye, User, Lock, LogOut, Edit3, ArrowUpDown, ChevronUp, ChevronDown, TrendingUp, Activity, Download, Image as ImageIcon } from 'lucide-react';
+import { Search, ShoppingCart, Plus, Minus, Trash2, ReceiptText, Package, CheckCircle2, AlertCircle, X, FileText, BarChart3, Clock, Calendar, Filter, ListOrdered, Eye, User, Lock, LogOut, Edit3, ArrowUpDown, ChevronDown, TrendingUp, Activity, Download, Image as ImageIcon, LayoutGrid, List } from 'lucide-react';
 
 // ==========================================
 // KONFIGURASI FIREBASE ANDA
@@ -55,7 +55,7 @@ export default function App() {
   
   const [cart, setCart] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("Semua"); // STATE BARU UNTUK FILTER KASIR
+  const [selectedCategory, setSelectedCategory] = useState("Semua"); 
   const [searchTrxQuery, setSearchTrxQuery] = useState("");
   const [customerName, setCustomerName] = useState(""); 
   const [paymentAmount, setPaymentAmount] = useState("");
@@ -63,15 +63,17 @@ export default function App() {
   const [receiptData, setReceiptData] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // State untuk Tambah & Edit Barang (Khusus Admin)
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [newProduct, setNewProduct] = useState({ code: '', name: '', buyPrice: '', price: '', stock: '', category: 'Sembako' });
-  const [editingProduct, setEditingProduct] = useState(null);
-
   // State Navigasi & Mobile UX
   const [activeTab, setActiveTab] = useState("kasir");
   const [laporanTab, setLaporanTab] = useState("penjualan");
   const [showMobileCart, setShowMobileCart] = useState(false); 
+  const [viewMode, setViewMode] = useState("grid"); // State untuk Tampilan Kasir (grid / list)
+  const [showCategoryMenu, setShowCategoryMenu] = useState(false); // State Menu Kategori Pop-up
+  
+  // State untuk Tambah & Edit Barang (Khusus Admin)
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newProduct, setNewProduct] = useState({ code: '', name: '', buyPrice: '', price: '', stock: '', category: 'Sembako' });
+  const [editingProduct, setEditingProduct] = useState(null);
   
   // State untuk Sorting Gudang
   const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
@@ -154,9 +156,7 @@ export default function App() {
     }).format(number);
   };
 
-  // ==========================================
-  // PERBAIKAN: SORTING A-Z & FILTER KATEGORI KASIR
-  // ==========================================
+  // SORTING A-Z & FILTER KATEGORI KASIR
   const filteredProducts = products
     .filter(p => {
       const matchSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -751,8 +751,8 @@ export default function App() {
             {/* Kolom Kiri: Produk */}
             <section className="flex-1 bg-white md:rounded-xl md:shadow-sm border-r md:border border-slate-200 flex flex-col h-full overflow-hidden w-full pb-16 md:pb-0 relative z-0">
               
-              {/* PERBAIKAN UI: BAR PENCARIAN & FILTER SEJAJAR */}
-              <div className="p-3 md:p-4 border-b border-slate-100 bg-white shadow-sm z-10 flex gap-2">
+              {/* PERBAIKAN UI: Bar Pencarian & Tombol Filter Logo */}
+              <div className="p-3 md:p-4 border-b border-slate-100 bg-white shadow-sm z-10 flex gap-2 items-center">
                 <div className="relative flex-1">
                   <input 
                     type="text" 
@@ -764,49 +764,110 @@ export default function App() {
                   <Search className="absolute left-3 top-3 md:top-2.5 text-slate-400" size={18} />
                 </div>
                 
-                <div className="relative w-[35%] md:w-48 shrink-0">
-                  <select 
-                    value={selectedCategory} 
-                    onChange={(e) => setSelectedCategory(e.target.value)}
-                    className="w-full h-full px-3 pr-8 py-2.5 md:py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-red-500 appearance-none text-slate-700 font-medium truncate"
+                {/* Tombol Filter Kategori */}
+                <div className="relative shrink-0">
+                  <button 
+                    onClick={() => setShowCategoryMenu(!showCategoryMenu)}
+                    className={`p-2.5 md:p-2 border rounded-lg flex items-center justify-center transition-colors ${selectedCategory !== "Semua" ? 'bg-red-50 border-red-200 text-red-600 shadow-sm' : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-slate-100'}`}
+                    title="Filter Kategori"
                   >
-                    <option value="Semua">Semua Kategori</option>
-                    {/* Ambil semua kategori unik dari list produk yang ada */}
-                    {[...new Set(products.map(p => p.category))].map(cat => (
-                      <option key={cat} value={cat}>{cat}</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-2 top-3 md:top-2.5 text-slate-400 pointer-events-none" size={16} />
+                    <Filter size={20} />
+                  </button>
+                  
+                  {/* Menu Melayang untuk Kategori */}
+                  {showCategoryMenu && (
+                    <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-[0_10px_40px_rgb(0,0,0,0.15)] z-50 p-2 text-left">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase px-2 pb-1 mb-1 border-b border-slate-100">Kategori Barang</div>
+                      <button 
+                        onClick={() => { setSelectedCategory("Semua"); setShowCategoryMenu(false); }}
+                        className={`w-full text-left px-3 py-2 rounded-lg text-xs md:text-sm font-medium ${selectedCategory === "Semua" ? 'bg-red-50 text-red-600' : 'text-slate-700 hover:bg-slate-50'}`}
+                      >
+                        Semua Kategori
+                      </button>
+                      {[...new Set(products.map(p => p.category))].map(cat => (
+                        <button 
+                          key={cat}
+                          onClick={() => { setSelectedCategory(cat); setShowCategoryMenu(false); }}
+                          className={`w-full text-left px-3 py-2 rounded-lg text-xs md:text-sm font-medium ${selectedCategory === cat ? 'bg-red-50 text-red-600' : 'text-slate-700 hover:bg-slate-50'}`}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
+
+                {/* Tombol Tampilan UI (View Mode) */}
+                <button 
+                  onClick={() => setViewMode(viewMode === "grid" ? "list" : "grid")}
+                  className="shrink-0 p-2.5 md:p-2 bg-slate-50 border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-100 flex items-center justify-center transition-colors"
+                  title="Ubah Tampilan Daftar"
+                >
+                  {viewMode === "grid" ? <List size={20} /> : <LayoutGrid size={20} />}
+                </button>
               </div>
 
+              {/* Tampilan Daftar Barang */}
               <div className="flex-1 overflow-y-auto p-2 md:p-4 bg-slate-50/50 pb-24 md:pb-4">
-                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 md:gap-4">
+                <div className={viewMode === "grid" ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 md:gap-4" : "flex flex-col gap-2 md:gap-3"}>
                   {filteredProducts.map(product => (
-                    <div key={product.id} onClick={() => addToCart(product)} className={`bg-white border border-slate-200 rounded-xl md:rounded-2xl p-2.5 md:p-4 transition-all hover:shadow-md active:scale-95 flex flex-col relative group ${product.stock <= 0 ? 'opacity-50 grayscale' : 'cursor-pointer'}`}>
-                      <div className="flex justify-between items-start mb-1.5">
-                        <span className="text-[9px] md:text-[10px] font-medium text-slate-500 truncate mr-1 bg-slate-50 px-1.5 rounded">{product.category}</span>
-                        <span className="text-[9px] md:text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-mono">{product.code}</span>
-                      </div>
-                      <h3 className="text-xs md:text-sm font-bold text-slate-800 leading-tight mb-2 md:mb-3 flex-1">{product.name}</h3>
-                      <div className="flex flex-col sm:flex-row sm:items-end justify-between mt-auto gap-1">
-                        <span className="text-red-600 font-bold text-sm md:text-base leading-none">{formatRupiah(product.price)}</span>
-                        <span className={`text-[9px] md:text-[10px] px-2 py-0.5 rounded-full font-semibold self-start sm:self-auto ${product.stock > 10 ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                          Stok: {product.stock}
-                        </span>
-                      </div>
-                      {product.stock <= 0 && (
-                        <div className="absolute inset-0 bg-white/60 flex items-center justify-center rounded-xl cursor-not-allowed">
-                          <span className="bg-red-600 text-white text-[10px] md:text-xs font-bold px-2 py-1 rounded shadow">HABIS</span>
+                    viewMode === "grid" ? (
+                      // BENTUK KOTAK (GRID)
+                      <div key={product.id} onClick={() => addToCart(product)} className={`bg-white border border-slate-200 rounded-xl md:rounded-2xl p-2.5 md:p-4 transition-all hover:shadow-md active:scale-95 flex flex-col relative group ${product.stock <= 0 ? 'opacity-50 grayscale' : 'cursor-pointer'}`}>
+                        <div className="flex justify-between items-start mb-1.5">
+                          <span className="text-[9px] md:text-[10px] font-medium text-slate-500 truncate mr-1 bg-slate-50 px-1.5 rounded">{product.category}</span>
+                          <span className="text-[9px] md:text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-mono">{product.code}</span>
                         </div>
-                      )}
-                      {cart.find(c => c.id === product.id) && (
-                         <div className="absolute -top-2 -right-2 bg-red-600 text-white text-[10px] font-bold w-5 h-5 md:w-6 md:h-6 rounded-full flex items-center justify-center shadow-md border-2 border-white">
-                           {cart.find(c => c.id === product.id).qty}
-                         </div>
-                      )}
-                    </div>
+                        <h3 className="text-xs md:text-sm font-bold text-slate-800 leading-tight mb-2 md:mb-3 flex-1">{product.name}</h3>
+                        <div className="flex flex-col sm:flex-row sm:items-end justify-between mt-auto gap-1">
+                          <span className="text-red-600 font-bold text-sm md:text-base leading-none">{formatRupiah(product.price)}</span>
+                          <span className={`text-[9px] md:text-[10px] px-2 py-0.5 rounded-full font-semibold self-start sm:self-auto ${product.stock > 10 ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                            Stok: {product.stock}
+                          </span>
+                        </div>
+                        {product.stock <= 0 && (
+                          <div className="absolute inset-0 bg-white/60 flex items-center justify-center rounded-xl cursor-not-allowed">
+                            <span className="bg-red-600 text-white text-[10px] md:text-xs font-bold px-2 py-1 rounded shadow">HABIS</span>
+                          </div>
+                        )}
+                        {cart.find(c => c.id === product.id) && (
+                           <div className="absolute -top-2 -right-2 bg-red-600 text-white text-[10px] font-bold w-5 h-5 md:w-6 md:h-6 rounded-full flex items-center justify-center shadow-md border-2 border-white">
+                             {cart.find(c => c.id === product.id).qty}
+                           </div>
+                        )}
+                      </div>
+                    ) : (
+                      // BENTUK 1 BARIS (LIST)
+                      <div key={product.id} onClick={() => addToCart(product)} className={`bg-white border border-slate-200 rounded-xl p-3 md:p-4 transition-all hover:shadow-md active:scale-[0.98] flex items-center gap-3 relative group ${product.stock <= 0 ? 'opacity-50 grayscale' : 'cursor-pointer'}`}>
+                        <div className="flex flex-col flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className="text-[9px] md:text-[10px] font-medium text-slate-500 truncate bg-slate-50 px-1.5 rounded">{product.category}</span>
+                            <span className="text-[9px] md:text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-mono">{product.code}</span>
+                          </div>
+                          <h3 className="text-sm md:text-base font-bold text-slate-800 leading-tight truncate">{product.name}</h3>
+                        </div>
+                        <div className="flex flex-col items-end shrink-0 gap-1.5">
+                          <span className="text-red-600 font-bold text-sm md:text-base leading-none">{formatRupiah(product.price)}</span>
+                          <span className={`text-[9px] md:text-[10px] px-2 py-0.5 rounded-full font-semibold ${product.stock > 10 ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                            Stok: {product.stock}
+                          </span>
+                        </div>
+                        {/* Status Habis */}
+                        {product.stock <= 0 && (
+                          <div className="absolute inset-0 bg-white/60 flex items-center justify-center rounded-xl cursor-not-allowed">
+                            <span className="bg-red-600 text-white text-[10px] md:text-xs font-bold px-3 py-1 rounded-full shadow">HABIS</span>
+                          </div>
+                        )}
+                        {/* Indikator Keranjang */}
+                        {cart.find(c => c.id === product.id) && (
+                           <div className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow-md border-2 border-white">
+                             {cart.find(c => c.id === product.id).qty}
+                           </div>
+                        )}
+                      </div>
+                    )
                   ))}
+                  
                   {filteredProducts.length === 0 && (
                     <div className="col-span-full py-12 text-center text-slate-400 flex flex-col items-center">
                       <Package size={48} className="mb-3 opacity-20" />
