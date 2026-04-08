@@ -67,8 +67,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("kasir");
   const [laporanTab, setLaporanTab] = useState("penjualan");
   const [showMobileCart, setShowMobileCart] = useState(false); 
-  const [viewMode, setViewMode] = useState("grid"); // State untuk Tampilan Kasir (grid / list)
-  const [showCategoryMenu, setShowCategoryMenu] = useState(false); // State Menu Kategori Pop-up
+  const [viewMode, setViewMode] = useState("grid"); 
+  const [showCategoryMenu, setShowCategoryMenu] = useState(false); 
   
   // State untuk Tambah & Edit Barang (Khusus Admin)
   const [showAddModal, setShowAddModal] = useState(false);
@@ -156,37 +156,59 @@ export default function App() {
     }).format(number);
   };
 
-  // SORTING A-Z & FILTER KATEGORI KASIR
+  // KASIR: SORTING A-Z & FILTER KATEGORI 
   const filteredProducts = products
     .filter(p => {
-      const matchSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          p.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      const matchSearch = (p.name || "").toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          (p.category || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
                           (p.code && p.code.toLowerCase().includes(searchQuery.toLowerCase()));
       const matchCategory = selectedCategory === "Semua" || p.category === selectedCategory;
       
       return matchSearch && matchCategory;
     })
     .sort((a, b) => {
-      // Langsung urutkan berdasarkan Nama Barang (A-Z)
       const nameA = a.name || "";
       const nameB = b.name || "";
       return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
     });
 
-  // Fitur Sorting untuk Menu Gudang
+  // ==========================================
+  // PERBAIKAN: SORTING GUDANG (STOK, TERBARU, TERLAMA)
+  // ==========================================
   const sortedProducts = React.useMemo(() => {
-    let sortableItems = [...products.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.category.toLowerCase().includes(searchQuery.toLowerCase()) || (p.code && p.code.toLowerCase().includes(searchQuery.toLowerCase())))];
-    sortableItems.sort((a, b) => {
-      let valA = a[sortConfig.key];
-      let valB = b[sortConfig.key];
-      
-      if (typeof valA === 'string') valA = valA.toLowerCase();
-      if (typeof valB === 'string') valB = valB.toLowerCase();
+    // 1. Lakukan pencarian teks terlebih dahulu
+    let sortableItems = [...products.filter(p => {
+      const sQ = searchQuery.toLowerCase();
+      const matchName = (p.name || "").toLowerCase().includes(sQ);
+      const matchCat = (p.category || "").toLowerCase().includes(sQ);
+      const matchCode = (p.code || "").toLowerCase().includes(sQ);
+      return matchName || matchCat || matchCode;
+    })];
 
-      if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
-      return 0;
+    // 2. Terapkan logika sorting yang akurat
+    sortableItems.sort((a, b) => {
+      if (sortConfig.key === 'stock') {
+        // PENTING: Konversi ke angka secara paksa agar terhindar dari error teks di database
+        const stockA = Number(a.stock) || 0;
+        const stockB = Number(b.stock) || 0;
+        return sortConfig.direction === 'asc' ? stockA - stockB : stockB - stockA;
+      } 
+      else if (sortConfig.key === 'createdAt') {
+        // Waktu pembuatan (Barang lama yang tidak punya createdAt dianggap angka 0)
+        const timeA = a.createdAt || 0;
+        const timeB = b.createdAt || 0;
+        return sortConfig.direction === 'asc' ? timeA - timeB : timeB - timeA;
+      } 
+      else {
+        // Default (Nama A-Z)
+        const nameA = a.name || "";
+        const nameB = b.name || "";
+        return sortConfig.direction === 'asc' 
+          ? nameA.localeCompare(nameB, undefined, { numeric: true }) 
+          : nameB.localeCompare(nameA, undefined, { numeric: true });
+      }
     });
+
     return sortableItems;
   }, [products, searchQuery, sortConfig]);
 
@@ -334,7 +356,8 @@ export default function App() {
         buyPrice: parseFloat(newProduct.buyPrice),
         price: parseFloat(newProduct.price),
         stock: parseInt(newProduct.stock, 10),
-        category: newProduct.category || "Sembako"
+        category: newProduct.category || "Sembako",
+        createdAt: Date.now() // PERBAIKAN: Catat waktu simpan agar fitur sorting "Terakhir Ditambahkan" berfungsi
       });
 
       setShowAddModal(false);
@@ -751,7 +774,7 @@ export default function App() {
             {/* Kolom Kiri: Produk */}
             <section className="flex-1 bg-white md:rounded-xl md:shadow-sm border-r md:border border-slate-200 flex flex-col h-full overflow-hidden w-full pb-16 md:pb-0 relative z-0">
               
-              {/* PERBAIKAN UI: Bar Pencarian & Tombol Filter Logo */}
+              {/* Bar Pencarian & Tombol Filter Logo */}
               <div className="p-3 md:p-4 border-b border-slate-100 bg-white shadow-sm z-10 flex gap-2 items-center">
                 <div className="relative flex-1">
                   <input 
@@ -1193,21 +1216,31 @@ export default function App() {
                   <input type="text" placeholder="Cari barang..." className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 text-sm" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
                   <Search className="absolute left-3 top-3 text-slate-400" size={16} />
                 </div>
-                <button onClick={() => setShowSortMenu(!showSortMenu)} className="bg-white border border-slate-300 text-slate-700 px-4 py-2.5 rounded-lg text-sm font-bold flex justify-center items-center gap-2 relative">
-                  <ArrowUpDown size={16} /> Urutkan
+                
+                <div className="relative shrink-0">
+                  <button onClick={() => setShowSortMenu(!showSortMenu)} className="w-full bg-white border border-slate-300 text-slate-700 px-4 py-2.5 rounded-lg text-sm font-bold flex justify-center items-center gap-2 relative transition-colors hover:bg-slate-50">
+                    <ArrowUpDown size={16} /> Urutkan
+                  </button>
+                  {/* PERBAIKAN: Menu Dropdown Sorting Gudang */}
                   {showSortMenu && (
                     <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-xl z-20 p-3 text-left">
                       <div className="space-y-2">
-                        <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700">
-                          <input type="radio" checked={sortConfig.key === 'name' && sortConfig.direction === 'asc'} onChange={() => { setSortConfig({key: 'name', direction: 'asc'}); setShowSortMenu(false); }} className="w-3 h-3 text-red-600" /> Nama (A-Z)
+                        <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 p-1 hover:bg-slate-50 rounded">
+                          <input type="radio" checked={sortConfig.key === 'name' && sortConfig.direction === 'asc'} onChange={() => { setSortConfig({key: 'name', direction: 'asc'}); setShowSortMenu(false); }} className="w-3.5 h-3.5 text-red-600" /> Nama (A-Z)
                         </label>
-                        <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700">
-                          <input type="radio" checked={sortConfig.key === 'stock' && sortConfig.direction === 'asc'} onChange={() => { setSortConfig({key: 'stock', direction: 'asc'}); setShowSortMenu(false); }} className="w-3 h-3 text-red-600" /> Stok Menipis
+                        <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 p-1 hover:bg-slate-50 rounded">
+                          <input type="radio" checked={sortConfig.key === 'stock' && sortConfig.direction === 'asc'} onChange={() => { setSortConfig({key: 'stock', direction: 'asc'}); setShowSortMenu(false); }} className="w-3.5 h-3.5 text-red-600" /> Stok Menipis
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 p-1 hover:bg-slate-50 rounded">
+                          <input type="radio" checked={sortConfig.key === 'createdAt' && sortConfig.direction === 'desc'} onChange={() => { setSortConfig({key: 'createdAt', direction: 'desc'}); setShowSortMenu(false); }} className="w-3.5 h-3.5 text-red-600" /> Terakhir Ditambahkan
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 p-1 hover:bg-slate-50 rounded">
+                          <input type="radio" checked={sortConfig.key === 'createdAt' && sortConfig.direction === 'asc'} onChange={() => { setSortConfig({key: 'createdAt', direction: 'asc'}); setShowSortMenu(false); }} className="w-3.5 h-3.5 text-red-600" /> Pertama Ditambahkan
                         </label>
                       </div>
                     </div>
                   )}
-                </button>
+                </div>
               </div>
 
               <div className="overflow-x-auto rounded-xl border border-slate-200">
