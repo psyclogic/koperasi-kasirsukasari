@@ -89,14 +89,14 @@ export default function App() {
   const [transactionToPermanentDelete, setTransactionToPermanentDelete] = useState(null);
   const [viewTrash, setViewTrash] = useState(false); 
 
+  // State Khusus Variasi (Kasir UI)
+  const [selectedProductForVariation, setSelectedProductForVariation] = useState(null);
+
   // State untuk Sistem/Backup
   const [fileToRestore, setFileToRestore] = useState(null);
   const [isRestoring, setIsRestoring] = useState(false);
   const [systemMsg, setSystemMsg] = useState({ type: '', text: '' });
   const fileInputRef = React.useRef(null);
-
-  // State Khusus Variasi (Kasir UI)
-  const [selectedProductForVariation, setSelectedProductForVariation] = useState(null);
 
   // ==========================================
   // STATE BARU: STOCK OPNAME (Khusus Admin, Berdiri Sendiri)
@@ -177,7 +177,6 @@ export default function App() {
   }, []); 
 
   // --- FUNGSI PEMBANTU (HELPER) UNTUK STOK EFEKTIF ---
-  // Fungsi ini sangat penting untuk membaca stok sebenarnya (termasuk jika konek stok atau variasi)
   const getEffectiveStock = (product, variationId = null) => {
     if (!product) return 0;
     
@@ -194,7 +193,6 @@ export default function App() {
 
   const getEffectivePrice = (product) => {
     if (product.hasVariations && product.variations && product.variations.length > 0) {
-      // Jika variasi, tampilkan harga terendah sebagai "Mulai dari"
       const lowest = Math.min(...product.variations.map(v => Number(v.price)));
       return lowest;
     }
@@ -298,7 +296,6 @@ export default function App() {
 
   const addToCart = (product, variation = null) => {
     setErrorMsg("");
-    // cartItemId adalah gabungan ID agar variasi tidak menyatu dengan barang utama
     const cartItemId = variation ? `${product.id}-${variation.id}` : product.id;
     const maxStock = getEffectiveStock(product, variation?.id);
 
@@ -311,7 +308,7 @@ export default function App() {
       if (maxStock <= 0) return setErrorMsg(`Stok habis!`);
       setCart([...cart, { 
         cartItemId: cartItemId,
-        id: product.id, // Tetap simpan ID doc asli untuk keperluan update database
+        id: product.id, 
         variationId: variation?.id || null,
         name: variation ? `${product.name} - ${variation.name}` : product.name,
         price: Number(variation ? variation.price : product.price),
@@ -420,7 +417,6 @@ export default function App() {
       const opnameDateStr = `${y}-${mo}-${d}`;
       const opnamePeriodStr = `${y}-${mo}`;
 
-      // PENGURANGAN STOK KOMPLEKS (Biasa / Konek / Variasi)
       for (const item of cart) {
         const originalProduct = products.find(p => p.id === item.id);
         if (!originalProduct) continue;
@@ -429,14 +425,12 @@ export default function App() {
         const prevEffectiveStock = getEffectiveStock(originalProduct, item.variationId);
 
         if (originalProduct.useLinkedStock && originalProduct.linkedProductId) {
-          // Konek Stok: Kurangi stok induk
           const parentProd = products.find(p => p.id === originalProduct.linkedProductId);
           if (parentProd) {
             const parentRef = doc(db, 'products', parentProd.id);
             await updateDoc(parentRef, { stock: Number(parentProd.stock) - item.qty });
           }
         } else if (item.variationId && originalProduct.hasVariations) {
-          // Variasi Stok: Kurangi stok pada variasi spesifik, dan hitung ulang total stok induk
           const updatedVariations = originalProduct.variations.map(v => 
             v.id === item.variationId ? { ...v, stock: Number(v.stock) - item.qty } : v
           );
@@ -446,15 +440,13 @@ export default function App() {
             variations: updatedVariations 
           });
         } else {
-          // Normal Stok
           await updateDoc(productRef, { stock: Number(originalProduct.stock) - item.qty });
         }
 
-        // AUTO INSERT KE OPNAME
-        const opnameData = {
+        const opnameDataToSave = {
           period: opnamePeriodStr,
           date: opnameDateStr,
-          itemName: item.name, // Gunakan nama spesifik (misal: Baju - Merah)
+          itemName: item.name, 
           prevStock: prevEffectiveStock,
           inQty: 0,
           buyPrice: item.buyPrice || 0,
@@ -465,7 +457,7 @@ export default function App() {
           isAuto: true,
           status: 'active'
         };
-        await addDoc(collection(db, 'stock_opname'), opnameData);
+        await addDoc(collection(db, 'stock_opname'), opnameDataToSave);
       }
 
       setReceiptData({ ...transactionData, id: docRef.id });
@@ -520,7 +512,7 @@ export default function App() {
       finalStock = newProduct.variations.reduce((sum, v) => sum + Number(v.stock || 0), 0);
     } else if (newProduct.useLinkedStock) {
       if (!newProduct.linkedProductId) return setErrorMsg("Pilih barang induk untuk disambungkan stoknya!");
-      finalStock = 0; // Stok derived dari induk
+      finalStock = 0; 
     } else {
       if (!newProduct.price || !newProduct.stock) return setErrorMsg("Lengkapi harga dan stok barang!");
       finalStock = Number(newProduct.stock);
@@ -595,7 +587,6 @@ export default function App() {
     if (!transactionToDelete) return;
 
     try {
-      // 1. Kembalikan stok 
       for (const item of transactionToDelete.items) {
         const originalProduct = products.find(p => p.id === item.id);
         if (originalProduct) {
@@ -636,7 +627,6 @@ export default function App() {
     if (!transactionToRestore) return;
 
     try {
-      // Cek ketersediaan stok
       for (const item of transactionToRestore.items) {
         const originalProduct = products.find(p => p.id === item.id);
         const effectiveStock = getEffectiveStock(originalProduct, item.variationId);
@@ -648,7 +638,6 @@ export default function App() {
         }
       }
 
-      // Potong kembali stok
       for (const item of transactionToRestore.items) {
         const originalProduct = products.find(p => p.id === item.id);
         const productRef = doc(db, 'products', originalProduct.id);
@@ -756,7 +745,6 @@ export default function App() {
     if (!selectedId) return;
     const prod = products.find(p => p.id === selectedId);
     if (prod) {
-      // Jika punya variasi, ambil harga yang pertama saja sebagai default
       const effPrice = getEffectivePrice(prod);
       const effStock = getEffectiveStock(prod);
       
@@ -971,8 +959,6 @@ export default function App() {
   const itemSummary = {};
   reportSales.forEach(trx => {
     trx.items.forEach(item => {
-      // Grouping by cartItemId ensures variants are analyzed separately if needed, 
-      // but grouping by name is safer for display. Let's use name.
       if (!itemSummary[item.name]) {
         itemSummary[item.name] = { 
           name: item.name, category: "Penjualan", 
@@ -1455,7 +1441,6 @@ export default function App() {
 
         {/* Konten LAPORAN */}
         {activeTab === "laporan" && (
-          // Konten laporan sama tidak diubah logikanya
           <div className="h-full overflow-y-auto p-2 md:p-4 pb-20 md:pb-4">
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3 md:p-6 w-full max-w-7xl mx-auto">
               <h2 className="text-lg md:text-2xl font-bold text-slate-800 flex items-center gap-2 mb-4"><BarChart3 className="text-red-600 w-5 h-5" /> Ringkasan Penjualan</h2>
@@ -1697,7 +1682,6 @@ export default function App() {
 
         {/* Konten STOCK OPNAME (Berdiri Sendiri) */}
         {activeTab === "opname" && currentUser.role === 'admin' && (
-          // Konten Opname sama, tidak saya ganti agar ringkas
           <div className="h-full overflow-y-auto p-2 md:p-4 pb-20 md:pb-4 bg-slate-50">
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3 md:p-6 w-full max-w-7xl mx-auto">
               
@@ -1756,7 +1740,7 @@ export default function App() {
                       <tr><td colSpan="9" className="px-4 py-8 text-center text-slate-400 text-sm">Belum ada catatan opname aktif di bulan ini.</td></tr>
                     ) : (
                       filteredOpnameData.map((item) => {
-                        const finalStock = item.prevStock + item.inQty - item.outQty;
+                        const finalStock = Number(item.prevStock || 0) + Number(item.inQty || 0) - Number(item.outQty || 0);
                         return (
                           <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50 bg-white">
                             <td className="px-3 py-2.5 text-xs text-slate-500 font-mono">{item.date}</td>
@@ -1849,7 +1833,9 @@ export default function App() {
         )}
       </nav>
 
-      {/* MODALS */}
+      {/* ============================================== */}
+      {/* MODALS - SEMUA POP UP DI BAWAH SINI            */}
+      {/* ============================================== */}
 
       {/* Modal Pilihan Variasi di Kasir */}
       {selectedProductForVariation && (
@@ -2097,6 +2083,83 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* !!! INI ADALAH MODAL STOCK OPNAME YANG KEMBALI DIMASUKKAN !!! */}
+      {/* Modal Tambah/Edit Opname */}
+      {showOpnameModal && currentUser.role === 'admin' && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-4 z-[60]">
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="p-3 md:p-4 border-b border-slate-100 flex justify-between items-center bg-indigo-50 shrink-0">
+              <h3 className="text-sm md:text-base font-bold text-slate-800 flex items-center gap-2"><ClipboardList size={18} className="text-indigo-600" /> {opnameForm.id ? 'Edit Catatan Opname' : 'Tambah Catatan Opname'}</h3>
+              <button onClick={() => setShowOpnameModal(false)} className="bg-white p-1.5 rounded-full"><X size={18} /></button>
+            </div>
+
+            <form onSubmit={handleSaveOpname} className="p-4 md:p-5 flex flex-col gap-4 overflow-y-auto">
+              {errorMsg && <div className="bg-red-50 text-red-600 p-3 rounded-lg text-xs">{errorMsg}</div>}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Tanggal</label>
+                  <input type="date" required className="w-full px-3 py-2 border rounded-lg text-sm" value={opnameForm.date} onChange={e => setOpnameForm({...opnameForm, date: e.target.value})} disabled={opnameForm.isAuto} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Pilih Barang</label>
+                  {opnameForm.isAuto ? (
+                    <input type="text" readOnly className="w-full px-3 py-2 border rounded-lg text-sm bg-slate-100" value={opnameForm.itemName} />
+                  ) : (
+                    <select required className="w-full px-3 py-2 border rounded-lg text-sm" onChange={handleOpnameProductSelect} value={products.find(p => p.name === opnameForm.itemName)?.id || ''}>
+                      <option value="" disabled>-- Pilih Barang dari Gudang --</option>
+                      {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  )}
+                </div>
+              </div>
+
+              {!opnameForm.isAuto && !products.find(p => p.name === opnameForm.itemName) && opnameForm.itemName && (
+                 <div className="col-span-2">
+                   <label className="block text-xs font-medium text-slate-700 mb-1">Nama Barang (Manual)</label>
+                   <input type="text" className="w-full px-3 py-2 border rounded-lg text-sm" value={opnameForm.itemName} onChange={e => setOpnameForm({...opnameForm, itemName: e.target.value})} />
+                 </div>
+              )}
+
+              <div className="grid grid-cols-3 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <div><label className="block text-[10px] font-medium text-slate-700 mb-1">Stok Awal</label><input type="number" required className="w-full px-2 py-2 border rounded-lg text-xs" value={opnameForm.prevStock} onChange={e => setOpnameForm({...opnameForm, prevStock: e.target.value})} disabled={opnameForm.isAuto} /></div>
+                <div><label className="block text-[10px] font-medium text-slate-700 mb-1 text-blue-600">Jml Masuk (+)</label><input type="number" className="w-full px-2 py-2 border rounded-lg text-xs border-blue-200" value={opnameForm.inQty} onChange={e => setOpnameForm({...opnameForm, inQty: e.target.value})} disabled={opnameForm.isAuto} /></div>
+                <div><label className="block text-[10px] font-medium text-slate-700 mb-1 text-green-600">Jml Keluar (-)</label><input type="number" className="w-full px-2 py-2 border rounded-lg text-xs border-green-200" value={opnameForm.outQty} onChange={e => setOpnameForm({...opnameForm, outQty: e.target.value})} disabled={opnameForm.isAuto} /></div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="block text-xs font-medium text-slate-700 mb-1">Harga Modal/Pcs</label><input type="number" className="w-full px-3 py-2 border rounded-lg text-sm" value={opnameForm.buyPrice} onChange={e => setOpnameForm({...opnameForm, buyPrice: e.target.value})} disabled={opnameForm.isAuto} /></div>
+                <div><label className="block text-xs font-medium text-slate-700 mb-1">Harga Jual/Pcs</label><input type="number" className="w-full px-3 py-2 border rounded-lg text-sm" value={opnameForm.sellPrice} onChange={e => setOpnameForm({...opnameForm, sellPrice: e.target.value})} disabled={opnameForm.isAuto} /></div>
+              </div>
+
+              {opnameForm.isAuto && <p className="text-[10px] text-red-500 italic">*Data dari sistem kasir hanya bisa diedit sebagian atau dihapus (meskipun tidak disarankan).</p>}
+
+              <div className="pt-3 flex gap-2 shrink-0">
+                <button type="button" onClick={() => setShowOpnameModal(false)} className="flex-1 py-3 bg-slate-100 font-bold rounded-lg text-sm text-slate-600">Batal</button>
+                <button type="submit" className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-lg text-sm shadow-md">Simpan Catatan</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Hapus Opname */}
+      {opnameToDelete && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
+          <div className="bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl p-5 text-center">
+            <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-3"><Trash2 size={28} /></div>
+            <h3 className="text-lg font-black text-slate-800 mb-1">Hapus Catatan?</h3>
+            <p className="text-slate-500 text-xs mb-5">Catatan opname ini akan dihapus permanen dari daftar tabel.</p>
+            <div className="flex gap-2">
+              <button onClick={() => setOpnameToDelete(null)} className="flex-1 py-2 bg-slate-100 font-bold rounded-lg text-xs text-slate-700">Batal</button>
+              <button onClick={executeDeleteOpname} className="flex-1 py-2 bg-red-600 text-white font-bold rounded-lg text-xs">Ya, Hapus</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ============================================== */}
+
 
       {/* Modal Nota Penjualan */}
       {(showReceipt || viewingReceipt) && (() => {
