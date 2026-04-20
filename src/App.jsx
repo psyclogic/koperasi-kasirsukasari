@@ -23,16 +23,16 @@ const db = getFirestore(app);
 const auth = getAuth(app); 
 
 // ==========================================
-// KOMPONEN LOGO KOPERASI (DIUBAH JADI KOTAK)
+// KOMPONEN LOGO KOPERASI
 // ==========================================
 const LogoKoperasi = ({ sizeClass = "w-16 h-16", iconSize = 32 }) => {
   const [hasError, setHasError] = useState(false);
   return (
-    // Menggunakan rounded-xl untuk kotak dengan sudut melengkung (bukan lingkaran)
+    // Menggunakan rounded-xl untuk kotak dengan sudut melengkung
     <div className={`bg-white rounded-xl flex items-center justify-center shadow-md overflow-hidden shrink-0 ${sizeClass}`}>
       {!hasError ? (
         <img 
-          src="LOGO KDMP SUKASARI.jpg" // Menggunakan ekstensi .jpg sesuai upload
+          src="LOGO KDMP SUKASARI.png" // Mengembalikan ke .png sesuai permintaan
           alt="Logo Koperasi" 
           className="w-full h-full object-contain p-1" // object-contain agar logo utuh tidak terpotong
           onError={() => setHasError(true)} 
