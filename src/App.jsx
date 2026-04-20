@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 // IMPORT FIREBASE
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
-import { Search, ShoppingCart, Plus, Minus, Trash2, ReceiptText, Package, CheckCircle2, AlertCircle, X, FileText, BarChart3, Clock, Calendar, Filter, ListOrdered, Eye, User, Lock, LogOut, Edit3, ArrowUpDown, ChevronDown, TrendingUp, Activity, Download, Image as ImageIcon, LayoutGrid, List, ClipboardList, Wallet, TrendingDown, Settings, Database, RotateCcw, ArchiveX, Upload, Check, Share2 } from 'lucide-react';
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth'; // IMPORT AUTH
+import { Search, ShoppingCart, Plus, Minus, Trash2, ReceiptText, Package, CheckCircle2, AlertCircle, X, FileText, BarChart3, Clock, Calendar, Filter, ListOrdered, Eye, User, Lock, LogOut, Edit3, ArrowUpDown, ChevronDown, TrendingUp, Activity, Download, Image as ImageIcon, LayoutGrid, List, ClipboardList, Wallet, TrendingDown, Settings, Database, RotateCcw, ArchiveX, Upload, Check, Share2, Loader2 } from 'lucide-react';
 
 // ==========================================
 // KONFIGURASI FIREBASE ANDA
@@ -16,9 +17,10 @@ const firebaseConfig = {
   appId: "1:405477869679:web:2fa809c5c4d7cab19e659a"
 };
 
-// Inisialisasi Aplikasi & Database
+// Inisialisasi Aplikasi, Database, & Auth
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const auth = getAuth(app); // INISIALISASI AUTH
 
 // Komponen Logo Terpisah agar Rapi
 const LogoKoperasi = ({ sizeClass = "w-16 h-16", iconSize = 32 }) => {
@@ -41,10 +43,9 @@ const LogoKoperasi = ({ sizeClass = "w-16 h-16", iconSize = 32 }) => {
 
 export default function App() {
   // State Autentikasi
-  const [currentUser, setCurrentUser] = useState(() => {
-    const savedUser = localStorage.getItem('koperasiUser');
-    return savedUser ? JSON.parse(savedUser) : null;
-  });
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true); // State loading untuk mengecek status login awal
+  const [isLoggingIn, setIsLoggingIn] = useState(false); // State loading saat tombol login ditekan
   
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
@@ -118,9 +119,48 @@ export default function App() {
   const [endDate, setEndDate] = useState(getLocalDateString());
 
   // ==========================================
-  // EFEK FIREBASE (AMBIL DATA REAL-TIME)
+  // EFEK FIREBASE (AMBIL DATA REAL-TIME & AUTH)
   // ==========================================
   useEffect(() => {
+    // 1. LISTENER AUTENTIKASI FIREBASE
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        // Pemetaan Peran (Role) berdasarkan Email
+        let role = 'kasir';
+        let displayUsername = user.email.split('@')[0];
+        let defaultTab = 'kasir';
+
+        if (user.email === 'yoga@koperasi.com') {
+          role = 'admin';
+          displayUsername = 'Admin';
+        } else if (user.email === 'backup@koperasi.com') {
+          role = 'backup';
+          displayUsername = 'Database Admin';
+          defaultTab = 'pengaturan'; // Arahkan ke pengaturan
+        } else if (user.email === 'ayu@koperasi.com') {
+          role = 'kasir';
+          displayUsername = 'Kasir 1';
+        }
+
+        setCurrentUser({
+          uid: user.uid,
+          email: user.email,
+          username: displayUsername,
+          role: role
+        });
+        
+        // Atur tab jika baru login
+        if (activeTab === 'kasir' && role === 'backup') {
+          setActiveTab(defaultTab);
+        }
+
+      } else {
+        setCurrentUser(null);
+      }
+      setIsAuthLoading(false); // Selesai loading Auth
+    });
+
+    // 2. LISTENER DATABASE (Hanya berjalan jika Auth sudah diinisialisasi)
     const unsubscribeProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
       const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setProducts(productsData);
@@ -132,52 +172,59 @@ export default function App() {
       setSalesHistory(salesData);
     });
 
-    // Listener khusus Stock Opname
     const unsubscribeOpname = onSnapshot(collection(db, 'stock_opname'), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setOpnameData(data);
     });
 
     return () => {
+      unsubscribeAuth();
       unsubscribeProducts();
       unsubscribeSales();
       unsubscribeOpname();
     };
-  }, []);
+  }, []); // Hapus dependensi activeTab agar tidak re-render terus
 
-  // --- FUNGSI AUTENTIKASI ---
-  const handleLogin = (e) => {
+  // --- FUNGSI AUTENTIKASI (MENGGUNAKAN FIREBASE AUTH) ---
+  const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
-    const { username, password } = loginForm;
+    setIsLoggingIn(true);
+    
+    // Auto-fill domain email jika user hanya mengetik 'yoga' atau 'ayu'
+    let loginEmail = loginForm.username.trim().toLowerCase();
+    if (!loginEmail.includes('@')) {
+      loginEmail = `${loginEmail}@koperasi.com`;
+    }
 
-    if (username === 'yoga' && password === 'yoga123') {
-      const user = { username: 'Admin', role: 'admin' };
-      setCurrentUser(user);
-      localStorage.setItem('koperasiUser', JSON.stringify(user));
+    try {
+      // Login Menggunakan Firebase Auth
+      await signInWithEmailAndPassword(auth, loginEmail, loginForm.password);
       setLoginForm({ username: '', password: '' });
-    } else if (username === 'ayu' && password === 'ayu123') {
-      const user = { username: 'Kasir 1', role: 'kasir' };
-      setCurrentUser(user);
-      localStorage.setItem('koperasiUser', JSON.stringify(user));
-      setLoginForm({ username: '', password: '' });
-    } else if (username === 'backup' && password === 'backup') {
-      const user = { username: 'Database Admin', role: 'backup' };
-      setCurrentUser(user);
-      localStorage.setItem('koperasiUser', JSON.stringify(user));
-      setLoginForm({ username: '', password: '' });
-      setActiveTab('pengaturan');
-    } else {
-      setLoginError('Username atau password salah!');
+      // Role & Tab pengaturan akan dihandle oleh onAuthStateChanged otomatis
+    } catch (error) {
+      console.error("Kesalahan Login:", error.code);
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        setLoginError('Username atau password salah!');
+      } else if (error.code === 'auth/network-request-failed') {
+        setLoginError('Tidak ada koneksi internet!');
+      } else {
+        setLoginError('Gagal masuk. Silakan coba lagi.');
+      }
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
-  const handleLogout = () => {
-    setCurrentUser(null);
-    localStorage.removeItem('koperasiUser');
-    setCart([]);
-    setActiveTab("kasir");
-    setViewTrash(false);
+  const handleLogout = async () => {
+    try {
+      await signOut(auth); // Sign out dari Firebase
+      setCart([]);
+      setActiveTab("kasir");
+      setViewTrash(false);
+    } catch (error) {
+      console.error("Gagal Logout:", error);
+    }
   };
 
   // --- FUNGSI FORMAT & FILTER ---
@@ -1001,8 +1048,17 @@ export default function App() {
   );
 
   // ==========================================
-  // RENDER: HALAMAN LOGIN
+  // RENDER: TAMPILAN LOADING AWAL & LOGIN
   // ==========================================
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-4">
+        <Loader2 size={48} className="text-red-600 animate-spin mb-4" />
+        <p className="text-slate-500 font-medium animate-pulse">Menghubungkan ke sistem...</p>
+      </div>
+    );
+  }
+
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-4">
@@ -1020,14 +1076,14 @@ export default function App() {
             )}
             
             <div>
-              <label className="block text-xs md:text-sm font-medium text-slate-700 mb-1.5 md:mb-2">Username</label>
+              <label className="block text-xs md:text-sm font-medium text-slate-700 mb-1.5 md:mb-2">Username / Email</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <User size={18} className="text-slate-400" />
                 </div>
                 <input
                   type="text" required className="w-full pl-10 pr-4 py-2.5 md:py-3 text-sm md:text-base border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500" placeholder="Masukkan username..."
-                  value={loginForm.username} onChange={(e) => setLoginForm({...loginForm, username: e.target.value})}
+                  value={loginForm.username} onChange={(e) => setLoginForm({...loginForm, username: e.target.value})} disabled={isLoggingIn}
                 />
               </div>
             </div>
@@ -1040,13 +1096,13 @@ export default function App() {
                 </div>
                 <input
                   type="password" required className="w-full pl-10 pr-4 py-2.5 md:py-3 text-sm md:text-base border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500" placeholder="Masukkan password..."
-                  value={loginForm.password} onChange={(e) => setLoginForm({...loginForm, password: e.target.value})}
+                  value={loginForm.password} onChange={(e) => setLoginForm({...loginForm, password: e.target.value})} disabled={isLoggingIn}
                 />
               </div>
             </div>
 
-            <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition-colors shadow-md flex justify-center items-center gap-2 text-sm md:text-base">
-              Masuk Sistem
+            <button type="submit" disabled={isLoggingIn} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition-colors shadow-md flex justify-center items-center gap-2 text-sm md:text-base disabled:opacity-70 disabled:cursor-not-allowed">
+              {isLoggingIn ? <><Loader2 size={18} className="animate-spin" /> Memeriksa...</> : 'Masuk Sistem'}
             </button>
             
           </form>
@@ -1803,24 +1859,40 @@ export default function App() {
           </div>
         )}
 
-        {/* Konten PENGATURAN (Khusus Admin: Backup Database) */}
-        {activeTab === "pengaturan" && currentUser.role === 'admin' && (
+        {/* Konten PENGATURAN (Khusus Admin Backup) */}
+        {activeTab === "pengaturan" && currentUser.role === 'backup' && (
            <div className="h-full overflow-y-auto p-2 md:p-4 pb-20 md:pb-4 bg-slate-50">
-             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-8 w-full max-w-3xl mx-auto flex flex-col items-center text-center">
+             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-8 w-full max-w-4xl mx-auto flex flex-col items-center text-center">
                <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-                 <Settings size={40} className="text-slate-600" />
+                 <Database size={40} className="text-slate-600" />
                </div>
-               <h2 className="text-2xl md:text-3xl font-black text-slate-800 mb-2">Pengaturan Sistem</h2>
-               <p className="text-slate-500 text-sm md:text-base mb-8 max-w-md">Lakukan pencadangan (backup) data secara rutin untuk menghindari kehilangan data penting koperasi Anda.</p>
+               <h2 className="text-2xl md:text-3xl font-black text-slate-800 mb-2">Manajemen Database</h2>
+               <p className="text-slate-500 text-sm md:text-base mb-8 max-w-lg">Gunakan fitur ini dengan bijak. Lakukan pencadangan (backup) atau pemulihan (restore) data sistem secara menyeluruh.</p>
 
-               <div className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-5 md:p-8 flex flex-col items-center">
-                 <Database size={48} className="text-blue-600 mb-4" />
-                 <h3 className="text-lg font-bold text-slate-800 mb-1">Backup Keseluruhan Database</h3>
-                 <p className="text-xs text-slate-500 mb-6">Tindakan ini akan mengunduh file <span className="font-mono text-slate-700 bg-slate-200 px-1 rounded">.json</span> yang berisi riwayat transaksi, data barang, dan catatan opname.</p>
-                 
-                 <button onClick={handleBackupDatabase} className="w-full sm:w-auto px-8 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all active:scale-95 flex justify-center items-center gap-2">
-                   <Download size={18} /> Unduh File Backup Sekarang
-                 </button>
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 w-full">
+                 {/* Panel Backup */}
+                 <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 md:p-8 flex flex-col items-center relative overflow-hidden">
+                   <div className="absolute top-0 right-0 bg-blue-100 text-blue-700 text-[10px] font-bold px-3 py-1 rounded-bl-xl">AMAN</div>
+                   <Download size={40} className="text-blue-600 mb-4" />
+                   <h3 className="text-lg font-bold text-slate-800 mb-2">Backup Database</h3>
+                   <p className="text-xs text-slate-500 mb-6 flex-1">Unduh file <span className="font-mono text-slate-700 bg-slate-200 px-1 rounded">.json</span> berisi seluruh data barang, transaksi, dan opname ke perangkat Anda.</p>
+                   <button onClick={handleBackupDatabase} className="w-full px-6 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-[0.98] flex justify-center items-center gap-2">
+                     <Download size={18} /> Unduh File Backup
+                   </button>
+                 </div>
+
+                 {/* Panel Restore */}
+                 <div className="bg-red-50 border border-red-200 rounded-2xl p-5 md:p-8 flex flex-col items-center relative overflow-hidden">
+                   <div className="absolute top-0 right-0 bg-red-200 text-red-800 text-[10px] font-bold px-3 py-1 rounded-bl-xl">BAHAYA</div>
+                   <Upload size={40} className="text-red-600 mb-4" />
+                   <h3 className="text-lg font-bold text-slate-800 mb-2">Restore Database</h3>
+                   <p className="text-xs text-slate-500 mb-6 flex-1 text-red-700">Unggah file backup <span className="font-mono text-red-900 bg-red-100 px-1 rounded">.json</span>. <strong className="text-red-800 block mt-1">Peringatan: Data saat ini akan tertimpa!</strong></p>
+                   
+                   <input type="file" accept=".json" ref={fileInputRef} onChange={handleFileSelection} className="hidden" />
+                   <button onClick={() => fileInputRef.current?.click()} className="w-full px-6 py-3.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-[0.98] flex justify-center items-center gap-2">
+                     <Upload size={18} /> Unggah & Pulihkan Data
+                   </button>
+                 </div>
                </div>
              </div>
            </div>
