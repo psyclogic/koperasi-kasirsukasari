@@ -22,16 +22,19 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app); 
 
-// Komponen Logo Terpisah agar Rapi
+// ==========================================
+// KOMPONEN LOGO KOPERASI (DIUBAH JADI KOTAK)
+// ==========================================
 const LogoKoperasi = ({ sizeClass = "w-16 h-16", iconSize = 32 }) => {
   const [hasError, setHasError] = useState(false);
   return (
-    <div className={`bg-white rounded-full flex items-center justify-center shadow-md overflow-hidden shrink-0 ${sizeClass}`}>
+    // Menggunakan rounded-xl untuk kotak dengan sudut melengkung (bukan lingkaran)
+    <div className={`bg-white rounded-xl flex items-center justify-center shadow-md overflow-hidden shrink-0 ${sizeClass}`}>
       {!hasError ? (
         <img 
-          src="LOGO KDMP SUKASARI.png" 
+          src="LOGO KDMP SUKASARI.jpg" // Menggunakan ekstensi .jpg sesuai upload
           alt="Logo Koperasi" 
-          className="w-full h-full object-cover p-0.5" 
+          className="w-full h-full object-contain p-1" // object-contain agar logo utuh tidak terpotong
           onError={() => setHasError(true)} 
         />
       ) : (
@@ -98,9 +101,7 @@ export default function App() {
   const [systemMsg, setSystemMsg] = useState({ type: '', text: '' });
   const fileInputRef = React.useRef(null);
 
-  // ==========================================
-  // STATE BARU: STOCK OPNAME (Khusus Admin, Berdiri Sendiri)
-  // ==========================================
+  // State Stock Opname
   const [opnameData, setOpnameData] = useState([]);
   const [opnamePeriod, setOpnamePeriod] = useState(() => {
     const d = new Date();
@@ -122,9 +123,6 @@ export default function App() {
   const [startDate, setStartDate] = useState(getLocalDateString());
   const [endDate, setEndDate] = useState(getLocalDateString());
 
-  // ==========================================
-  // EFEK FIREBASE (AMBIL DATA REAL-TIME & AUTH)
-  // ==========================================
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (user) {
@@ -176,16 +174,12 @@ export default function App() {
     };
   }, []); 
 
-  // --- FUNGSI PEMBANTU (HELPER) UNTUK STOK EFEKTIF ---
   const getEffectiveStock = (product, variationId = null) => {
     if (!product) return 0;
-    
-    // Konek Stok -> Ambil stok induk
     if (product.useLinkedStock && product.linkedProductId) {
       const parentProd = products.find(p => p.id === product.linkedProductId);
       return parentProd ? Number(parentProd.stock) : 0;
     }
-    // Variasi -> Ambil stok variasi
     if (variationId && product.hasVariations && product.variations) {
       const vari = product.variations.find(v => v.id === variationId);
       return vari ? Number(vari.stock) : 0;
@@ -194,16 +188,13 @@ export default function App() {
   };
 
   const getEffectivePrice = (product) => {
-    // Variasi -> Harga ambil yang termurah
     if (product.hasVariations && product.variations && product.variations.length > 0) {
       const lowest = Math.min(...product.variations.map(v => Number(v.price)));
       return lowest;
     }
-    // Konek Stok / Biasa -> Ambil harganya sendiri
     return Number(product.price);
   };
 
-  // --- FUNGSI AUTENTIKASI ---
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
@@ -242,7 +233,6 @@ export default function App() {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number || 0);
   };
 
-  // KASIR: SORTING A-Z & FILTER KATEGORI 
   const filteredProducts = products
     .filter(p => {
       const matchSearch = (p.name || "").toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -257,7 +247,6 @@ export default function App() {
       return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
     });
 
-  // SORTING GUDANG
   const sortedProducts = React.useMemo(() => {
     let sortableItems = [...products.filter(p => {
       const sQ = searchQuery.toLowerCase();
@@ -289,7 +278,6 @@ export default function App() {
     return sortableItems;
   }, [products, searchQuery, sortConfig]);
 
-  // --- FUNGSI KERANJANG & PEMBAYARAN ---
   const handleProductClick = (product) => {
     if (product.hasVariations && product.variations && product.variations.length > 0) {
       setSelectedProductForVariation(product);
@@ -383,7 +371,6 @@ export default function App() {
     });
   };
 
-  // --- FUNGSI TRANSAKSI & CHECKOUT ---
   const totalAmount = cart.reduce((sum, item) => sum + (item.price * (item.qty || 0)), 0);
   const changeAmount = parseFloat(paymentAmount || 0) - totalAmount;
 
@@ -477,7 +464,6 @@ export default function App() {
     }
   };
 
-  // --- FUNGSI MANAJEMEN BARANG FIREBASE (ADMIN ONLY) ---
   const handleVariationChange = (index, field, value, isNew = true) => {
     const stateModifier = isNew ? setNewProduct : setEditingProduct;
     stateModifier(prev => {
@@ -517,7 +503,7 @@ export default function App() {
     } else if (newProduct.useLinkedStock) {
       if (!newProduct.linkedProductId) return setErrorMsg("Pilih barang induk untuk disambungkan stoknya!");
       if (!newProduct.price) return setErrorMsg("Mohon lengkapi Harga Jual barang ini!");
-      finalStock = 0; // Stok selalu 0, karena efektif baca dari induk
+      finalStock = 0; 
     } else {
       if (!newProduct.price || !newProduct.stock) return setErrorMsg("Lengkapi harga dan stok barang!");
       finalStock = Number(newProduct.stock);
@@ -532,7 +518,6 @@ export default function App() {
         variations: newProduct.hasVariations ? newProduct.variations : [],
         useLinkedStock: newProduct.useLinkedStock,
         linkedProductId: newProduct.useLinkedStock ? newProduct.linkedProductId : '',
-        // FIX: Harga tidak lagi dipaksa 0 jika useLinkedStock, melainkan hanya saat hasVariations
         buyPrice: newProduct.hasVariations ? 0 : parseFloat(newProduct.buyPrice || 0),
         price: newProduct.hasVariations ? 0 : parseFloat(newProduct.price || 0),
         stock: finalStock,
@@ -577,7 +562,6 @@ export default function App() {
         variations: editingProduct.hasVariations ? editingProduct.variations : [],
         useLinkedStock: editingProduct.useLinkedStock,
         linkedProductId: editingProduct.useLinkedStock ? editingProduct.linkedProductId : '',
-        // FIX: Harga tidak lagi dipaksa 0 jika useLinkedStock, melainkan hanya saat hasVariations
         buyPrice: editingProduct.hasVariations ? 0 : parseFloat(editingProduct.buyPrice || 0),
         price: editingProduct.hasVariations ? 0 : parseFloat(editingProduct.price || 0),
         stock: finalStock
@@ -590,7 +574,6 @@ export default function App() {
     }
   };
 
-  // --- FUNGSI SOFT DELETE TRANSAKSI ---
   const confirmDeleteTransaction = async () => {
     if (!transactionToDelete) return;
 
@@ -630,7 +613,6 @@ export default function App() {
     }
   };
 
-  // --- FUNGSI RESTORE TRANSAKSI ---
   const confirmRestoreTransaction = async () => {
     if (!transactionToRestore) return;
 
@@ -677,7 +659,6 @@ export default function App() {
     }
   };
 
-  // --- FUNGSI HAPUS PERMANEN TRANSAKSI ---
   const confirmPermanentDeleteTransaction = async () => {
     if (!transactionToPermanentDelete) return;
     try {
@@ -690,7 +671,6 @@ export default function App() {
     }
   };
 
-  // --- FUNGSI BACKUP DATABASE ---
   const handleBackupDatabase = () => {
     try {
       const backupData = {
@@ -745,9 +725,6 @@ export default function App() {
     reader.readAsText(fileToRestore);
   };
 
-  // ==========================================
-  // FUNGSI STOCK OPNAME (ADMIN ONLY, STANDALONE)
-  // ==========================================
   const handleOpnameProductSelect = (e) => {
     const selectedId = e.target.value;
     if (!selectedId) return;
@@ -816,7 +793,6 @@ export default function App() {
   const opnameTotalOmset = filteredOpnameData.reduce((sum, item) => sum + (item.outQty * item.sellPrice), 0);
   const opnameTotalLaba = filteredOpnameData.reduce((sum, item) => sum + ((item.outQty * item.sellPrice) - (item.outQty * item.buyPrice)), 0);
 
-  // --- REPORT GENERATION ---
   const getReceiptCanvas = (data) => {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -930,7 +906,6 @@ export default function App() {
     }, 'image/jpeg', 1.0);
   };
 
-  // FILTER UTAMA TRANSAKSI
   const baseFilteredSales = salesHistory.filter(trx => {
     let isValid = true;
     const parts = trx.date.split(' ')[0].split('/'); 
@@ -1062,9 +1037,6 @@ export default function App() {
     </div>
   );
 
-  // ==========================================
-  // RENDER: TAMPILAN LOADING AWAL & LOGIN
-  // ==========================================
   if (isAuthLoading) {
     return (
       <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-4">
@@ -1115,12 +1087,8 @@ export default function App() {
     );
   }
 
-  // ==========================================
-  // RENDER: HALAMAN UTAMA
-  // ==========================================
   return (
     <div className="bg-slate-50 font-sans flex flex-col h-screen overflow-hidden">
-      {/* Header Utama */}
       <header className="bg-red-600 text-white shadow-md p-3 md:p-4 shrink-0 flex items-center justify-between z-10">
         <div className="flex items-center gap-2 md:gap-3">
           <LogoKoperasi sizeClass="w-10 h-10 md:w-12 md:h-12" iconSize={24} />
@@ -1166,24 +1134,19 @@ export default function App() {
         </div>
       </header>
 
-      {/* Area Konten Utama */}
       <div className="flex-1 overflow-hidden relative">
         
-        {/* Konten KASIR */}
         {activeTab === "kasir" && (
           <div className="h-full flex w-full max-w-7xl mx-auto md:p-4 gap-4">
             
-            {/* Kolom Kiri: Produk */}
             <section className="flex-1 bg-white md:rounded-xl md:shadow-sm border-r md:border border-slate-200 flex flex-col h-full overflow-hidden w-full pb-16 md:pb-0 relative z-0">
               
-              {/* Bar Pencarian & Tombol Filter Logo */}
               <div className="p-3 md:p-4 border-b border-slate-100 bg-white shadow-sm z-10 flex gap-2 items-center">
                 <div className="relative flex-1">
                   <input type="text" placeholder="Cari barang / kode..." className="w-full pl-9 pr-3 py-2.5 md:py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500 transition-all" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
                   <Search className="absolute left-3 top-3 md:top-2.5 text-slate-400" size={18} />
                 </div>
                 
-                {/* Tombol Filter Kategori */}
                 <div className="relative shrink-0">
                   <button onClick={() => setShowCategoryMenu(!showCategoryMenu)} className={`p-2.5 md:p-2 border rounded-lg flex items-center justify-center transition-colors ${selectedCategory !== "Semua" ? 'bg-red-50 border-red-200 text-red-600 shadow-sm' : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-slate-100'}`} title="Filter Kategori">
                     <Filter size={20} />
@@ -1204,7 +1167,6 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Tampilan Daftar Barang */}
               <div className="flex-1 overflow-y-auto p-2 md:p-4 bg-slate-50/50 pb-24 md:pb-4">
                 <div className={viewMode === "grid" ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 md:gap-4" : "flex flex-col gap-2 md:gap-3"}>
                   {filteredProducts.map(product => {
@@ -1213,7 +1175,6 @@ export default function App() {
                     const isOutOfStock = effStock <= 0;
                     
                     return viewMode === "grid" ? (
-                      // BENTUK KOTAK (GRID)
                       <div key={product.id} onClick={() => handleProductClick(product)} className={`bg-white border border-slate-200 rounded-xl md:rounded-2xl p-2.5 md:p-4 transition-all hover:shadow-md active:scale-95 flex flex-col relative group ${isOutOfStock ? 'opacity-50 grayscale' : 'cursor-pointer'}`}>
                         <div className="flex justify-between items-start mb-1.5">
                           <span className="text-[9px] md:text-[10px] font-medium text-slate-500 truncate mr-1 bg-slate-50 px-1.5 rounded">{product.category}</span>
@@ -1245,7 +1206,6 @@ export default function App() {
                         )}
                       </div>
                     ) : (
-                      // BENTUK 1 BARIS (LIST)
                       <div key={product.id} onClick={() => handleProductClick(product)} className={`bg-white border border-slate-200 rounded-xl p-3 md:p-4 transition-all hover:shadow-md active:scale-[0.98] flex items-center gap-3 relative group ${isOutOfStock ? 'opacity-50 grayscale' : 'cursor-pointer'}`}>
                         <div className="flex flex-col flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1.5">
@@ -1305,7 +1265,6 @@ export default function App() {
               )}
             </section>
 
-            {/* Kolom Kanan: Keranjang & Checkout */}
             {showMobileCart && (
               <div className="md:hidden fixed inset-0 bg-slate-900/40 z-[50] backdrop-blur-sm transition-opacity" onClick={() => setShowMobileCart(false)}></div>
             )}
@@ -1389,7 +1348,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Konten TRANSAKSI */}
         {activeTab === "transaksi" && (
           <div className="h-full overflow-y-auto p-2 md:p-4 pb-20 md:pb-4">
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3 md:p-6 w-full max-w-7xl mx-auto">
@@ -1447,7 +1405,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Konten LAPORAN */}
         {activeTab === "laporan" && (
           <div className="h-full overflow-y-auto p-2 md:p-4 pb-20 md:pb-4">
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3 md:p-6 w-full max-w-7xl mx-auto">
@@ -1458,14 +1415,12 @@ export default function App() {
                 <div className="text-center py-12 text-slate-500"><BarChart3 size={40} className="mx-auto mb-3 opacity-20" /><p className="text-sm md:text-base">Belum ada data penjualan aktif.</p></div>
               ) : (
                 <div className="space-y-4 md:space-y-6">
-                  {/* Tab Laporan */}
                   <div className="flex overflow-x-auto gap-2 pb-2 hide-scrollbar w-full border-b border-slate-100">
                       <button onClick={() => setLaporanTab('penjualan')} className={`whitespace-nowrap flex-shrink-0 px-3 py-2 rounded-lg font-bold text-xs md:text-sm transition-colors flex items-center gap-1.5 ${laporanTab === 'penjualan' ? 'bg-red-50 text-red-600 border border-red-200' : 'text-slate-500 bg-slate-50'}`}><TrendingUp size={14}/> Penjualan</button>
                       <button onClick={() => setLaporanTab('keuntungan')} className={`whitespace-nowrap flex-shrink-0 px-3 py-2 rounded-lg font-bold text-xs md:text-sm transition-colors flex items-center gap-1.5 ${laporanTab === 'keuntungan' ? 'bg-green-50 text-green-600 border border-green-200' : 'text-slate-500 bg-slate-50'}`}><Activity size={14}/> Keuntungan</button>
                       <button onClick={() => setLaporanTab('transaksi')} className={`whitespace-nowrap flex-shrink-0 px-3 py-2 rounded-lg font-bold text-xs md:text-sm transition-colors flex items-center gap-1.5 ${laporanTab === 'transaksi' ? 'bg-blue-50 text-blue-600 border border-blue-200' : 'text-slate-500 bg-slate-50'}`}><ListOrdered size={14}/> Transaksi Harian</button>
                   </div>
                   
-                  {/* Penjualan */}
                   {laporanTab === 'penjualan' && (
                     <div className="space-y-4 animate-in fade-in">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1511,7 +1466,6 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Keuntungan */}
                   {laporanTab === 'keuntungan' && (
                     <div className="space-y-4 animate-in fade-in">
                       <div className="bg-gradient-to-br from-green-500 to-green-600 p-4 rounded-xl text-white shadow-sm">
@@ -1552,7 +1506,6 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Transaksi */}
                   {laporanTab === 'transaksi' && (
                     <div className="space-y-4 animate-in fade-in">
                       <div className="grid grid-cols-2 gap-3">
@@ -1603,7 +1556,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Konten GUDANG */}
         {activeTab === "gudang" && currentUser.role === 'admin' && (
           <div className="h-full overflow-y-auto p-2 md:p-4 pb-20 md:pb-4">
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3 md:p-6 w-full max-w-7xl mx-auto">
@@ -1688,7 +1640,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Konten STOCK OPNAME (Berdiri Sendiri) */}
         {activeTab === "opname" && currentUser.role === 'admin' && (
           <div className="h-full overflow-y-auto p-2 md:p-4 pb-20 md:pb-4 bg-slate-50">
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3 md:p-6 w-full max-w-7xl mx-auto">
@@ -1774,7 +1725,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Konten PENGATURAN (Khusus Admin Backup) */}
         {activeTab === "pengaturan" && currentUser.role === 'backup' && (
            <div className="h-full overflow-y-auto p-2 md:p-4 pb-20 md:pb-4 bg-slate-50">
              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-8 w-full max-w-4xl mx-auto flex flex-col items-center text-center">
@@ -1809,7 +1759,6 @@ export default function App() {
         )}
       </div>
 
-      {/* Navigasi Bawah Khusus Mobile */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 pb-safe flex overflow-x-auto hide-scrollbar shadow-[0_-4px_10px_rgb(0,0,0,0.05)]">
         {currentUser.role !== 'backup' && (
           <>
@@ -1841,11 +1790,6 @@ export default function App() {
         )}
       </nav>
 
-      {/* ============================================== */}
-      {/* MODALS - SEMUA POP UP DI BAWAH SINI            */}
-      {/* ============================================== */}
-
-      {/* Modal Pilihan Variasi di Kasir */}
       {selectedProductForVariation && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 z-[70] animate-in slide-in-from-bottom-full md:slide-in-from-bottom-0 md:fade-in">
           <div className="bg-white rounded-t-2xl md:rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl flex flex-col max-h-[80vh]">
@@ -1879,7 +1823,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal Tambah Barang Gudang */}
       {showAddModal && currentUser.role === 'admin' && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-4 z-[60]">
           <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
@@ -1889,7 +1832,6 @@ export default function App() {
             </div>
             
             <form onSubmit={handleSaveProduct} className="p-4 md:p-5 flex flex-col gap-4 overflow-y-auto">
-              {/* Info Dasar */}
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Nama Barang Lengkap</label>
                 <input type="text" required className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-red-500 text-sm font-bold" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} placeholder="Misal: Rokok Gudang Garam" />
@@ -1909,7 +1851,6 @@ export default function App() {
                 )}
               </div>
 
-              {/* Toggles Tipe Barang */}
               <div className="flex flex-col gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200 mt-1">
                 <label className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${newProduct.hasVariations ? 'bg-indigo-50 border border-indigo-200' : 'hover:bg-slate-100'}`}>
                   <input type="checkbox" className="w-4 h-4 text-indigo-600 rounded" checked={newProduct.hasVariations} onChange={(e) => setNewProduct({...newProduct, hasVariations: e.target.checked, useLinkedStock: false})} />
@@ -1927,7 +1868,6 @@ export default function App() {
                 </label>
               </div>
 
-              {/* Section: Jika Variasi Aktif */}
               {newProduct.hasVariations && (
                 <div className="border border-indigo-200 bg-indigo-50/30 rounded-xl p-3 space-y-3">
                   <div className="flex justify-between items-center mb-1">
@@ -1952,7 +1892,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* Section: Jika Linked Stock Aktif */}
               {newProduct.useLinkedStock && (
                 <div className="border border-orange-200 bg-orange-50/30 rounded-xl p-3 space-y-3">
                   <h4 className="text-xs font-bold text-orange-800 uppercase tracking-wider mb-2">Pilih Barang Induk</h4>
@@ -1969,7 +1908,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* Section: Jika Standar (Tanpa Keduanya) */}
               {!newProduct.hasVariations && !newProduct.useLinkedStock && (
                 <div className="grid grid-cols-3 gap-3 bg-white p-3 rounded-xl border border-slate-200">
                   <div><label className="block text-[10px] font-medium text-slate-700 mb-1">Hrg Beli (Rp)</label><input type="number" required className="w-full px-2 py-2 border rounded-lg text-xs" value={newProduct.buyPrice} onChange={e => setNewProduct({...newProduct, buyPrice: e.target.value})} /></div>
@@ -1987,7 +1925,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal Edit Barang Gudang */}
       {editingProduct && currentUser.role === 'admin' && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-4 z-[60]">
           <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
@@ -2016,7 +1953,6 @@ export default function App() {
                 )}
               </div>
 
-              {/* Toggles Tipe Barang */}
               <div className="flex flex-col gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200 mt-1">
                 <label className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${editingProduct.hasVariations ? 'bg-indigo-50 border border-indigo-200' : 'hover:bg-slate-100'}`}>
                   <input type="checkbox" className="w-4 h-4 text-indigo-600 rounded" checked={editingProduct.hasVariations || false} onChange={(e) => setEditingProduct({...editingProduct, hasVariations: e.target.checked, useLinkedStock: false, variations: editingProduct.variations || []})} />
@@ -2032,7 +1968,6 @@ export default function App() {
                 </label>
               </div>
 
-              {/* Section Variasi */}
               {editingProduct.hasVariations && (
                 <div className="border border-indigo-200 bg-indigo-50/30 rounded-xl p-3 space-y-3">
                   <div className="flex justify-between items-center mb-1">
@@ -2057,7 +1992,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* Section Linked Stock */}
               {editingProduct.useLinkedStock && (
                 <div className="border border-orange-200 bg-orange-50/30 rounded-xl p-3 space-y-3">
                   <h4 className="text-xs font-bold text-orange-800 uppercase tracking-wider mb-2">Pilih Barang Induk</h4>
@@ -2074,7 +2008,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* Section Standar */}
               {!editingProduct.hasVariations && !editingProduct.useLinkedStock && (
                 <div className="grid grid-cols-3 gap-3 bg-white p-3 rounded-xl border border-slate-200">
                   <div><label className="block text-[10px] font-medium text-slate-700 mb-1">Hrg Beli (Rp)</label><input type="number" required className="w-full px-2 py-2 border rounded-lg text-xs" value={editingProduct.buyPrice} onChange={e => setEditingProduct({...editingProduct, buyPrice: e.target.value})} /></div>
@@ -2092,7 +2025,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal Tambah/Edit Opname */}
       {showOpnameModal && currentUser.role === 'admin' && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-4 z-[60]">
           <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
@@ -2151,7 +2083,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal Hapus Opname */}
       {opnameToDelete && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
           <div className="bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl p-5 text-center">
@@ -2166,7 +2097,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal Nota Penjualan */}
       {(showReceipt || viewingReceipt) && (() => {
         const data = showReceipt ? receiptData : viewingReceipt;
         const isCheckout = showReceipt;
@@ -2220,7 +2150,6 @@ export default function App() {
         );
       })()}
 
-      {/* Modal Konfirmasi Hapus Transaksi (Soft Delete) */}
       {transactionToDelete && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
           <div className="bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl p-5 text-center">
@@ -2235,7 +2164,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal Konfirmasi Hapus Transaksi Permanen */}
       {transactionToPermanentDelete && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
           <div className="bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl p-5 text-center">
@@ -2250,7 +2178,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal Konfirmasi Restore Transaksi */}
       {transactionToRestore && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
           <div className="bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl p-5 text-center">
@@ -2266,7 +2193,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Pesan Sistem Pop-up */}
       {systemMsg.text && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
           <div className="bg-white rounded-xl shadow-2xl p-5 text-center max-w-xs w-full animate-in zoom-in-95">
