@@ -180,10 +180,12 @@ export default function App() {
   const getEffectiveStock = (product, variationId = null) => {
     if (!product) return 0;
     
+    // Konek Stok -> Ambil stok induk
     if (product.useLinkedStock && product.linkedProductId) {
       const parentProd = products.find(p => p.id === product.linkedProductId);
       return parentProd ? Number(parentProd.stock) : 0;
     }
+    // Variasi -> Ambil stok variasi
     if (variationId && product.hasVariations && product.variations) {
       const vari = product.variations.find(v => v.id === variationId);
       return vari ? Number(vari.stock) : 0;
@@ -192,10 +194,12 @@ export default function App() {
   };
 
   const getEffectivePrice = (product) => {
+    // Variasi -> Harga ambil yang termurah
     if (product.hasVariations && product.variations && product.variations.length > 0) {
       const lowest = Math.min(...product.variations.map(v => Number(v.price)));
       return lowest;
     }
+    // Konek Stok / Biasa -> Ambil harganya sendiri
     return Number(product.price);
   };
 
@@ -512,7 +516,8 @@ export default function App() {
       finalStock = newProduct.variations.reduce((sum, v) => sum + Number(v.stock || 0), 0);
     } else if (newProduct.useLinkedStock) {
       if (!newProduct.linkedProductId) return setErrorMsg("Pilih barang induk untuk disambungkan stoknya!");
-      finalStock = 0; 
+      if (!newProduct.price) return setErrorMsg("Mohon lengkapi Harga Jual barang ini!");
+      finalStock = 0; // Stok selalu 0, karena efektif baca dari induk
     } else {
       if (!newProduct.price || !newProduct.stock) return setErrorMsg("Lengkapi harga dan stok barang!");
       finalStock = Number(newProduct.stock);
@@ -527,8 +532,9 @@ export default function App() {
         variations: newProduct.hasVariations ? newProduct.variations : [],
         useLinkedStock: newProduct.useLinkedStock,
         linkedProductId: newProduct.useLinkedStock ? newProduct.linkedProductId : '',
-        buyPrice: newProduct.hasVariations || newProduct.useLinkedStock ? 0 : parseFloat(newProduct.buyPrice || 0),
-        price: newProduct.hasVariations || newProduct.useLinkedStock ? 0 : parseFloat(newProduct.price || 0),
+        // FIX: Harga tidak lagi dipaksa 0 jika useLinkedStock, melainkan hanya saat hasVariations
+        buyPrice: newProduct.hasVariations ? 0 : parseFloat(newProduct.buyPrice || 0),
+        price: newProduct.hasVariations ? 0 : parseFloat(newProduct.price || 0),
         stock: finalStock,
         createdAt: Date.now() 
       });
@@ -554,6 +560,7 @@ export default function App() {
       finalStock = editingProduct.variations.reduce((sum, v) => sum + Number(v.stock || 0), 0);
     } else if (editingProduct.useLinkedStock) {
       if (!editingProduct.linkedProductId) return setErrorMsg("Pilih barang induk untuk disambungkan stoknya!");
+      if (!editingProduct.price) return setErrorMsg("Mohon lengkapi Harga Jual barang ini!");
       finalStock = 0; 
     } else {
       if (!editingProduct.price || !editingProduct.stock) return setErrorMsg("Lengkapi harga dan stok barang!");
@@ -570,8 +577,9 @@ export default function App() {
         variations: editingProduct.hasVariations ? editingProduct.variations : [],
         useLinkedStock: editingProduct.useLinkedStock,
         linkedProductId: editingProduct.useLinkedStock ? editingProduct.linkedProductId : '',
-        buyPrice: editingProduct.hasVariations || editingProduct.useLinkedStock ? 0 : parseFloat(editingProduct.buyPrice || 0),
-        price: editingProduct.hasVariations || editingProduct.useLinkedStock ? 0 : parseFloat(editingProduct.price || 0),
+        // FIX: Harga tidak lagi dipaksa 0 jika useLinkedStock, melainkan hanya saat hasVariations
+        buyPrice: editingProduct.hasVariations ? 0 : parseFloat(editingProduct.buyPrice || 0),
+        price: editingProduct.hasVariations ? 0 : parseFloat(editingProduct.price || 0),
         stock: finalStock
       });
 
@@ -1955,7 +1963,7 @@ export default function App() {
                     ))}
                   </select>
                   <div className="grid grid-cols-2 gap-3 mt-2">
-                    <div><label className="block text-[10px] font-medium text-slate-500">Hrg Beli (Opsional)</label><input type="number" className="w-full px-2 py-2 border rounded text-xs" value={newProduct.buyPrice} onChange={e => setNewProduct({...newProduct, buyPrice: e.target.value})} /></div>
+                    <div><label className="block text-[10px] font-medium text-slate-500">Hrg Beli Barang Ini (Opsional)</label><input type="number" className="w-full px-2 py-2 border rounded text-xs" value={newProduct.buyPrice} onChange={e => setNewProduct({...newProduct, buyPrice: e.target.value})} /></div>
                     <div><label className="block text-[10px] font-medium text-slate-500">Hrg Jual Barang Ini (Wajib)</label><input type="number" required className="w-full px-2 py-2 border rounded text-xs" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} /></div>
                   </div>
                 </div>
@@ -2060,8 +2068,8 @@ export default function App() {
                     ))}
                   </select>
                   <div className="grid grid-cols-2 gap-3 mt-2">
-                    <div><label className="block text-[10px] font-medium text-slate-500">Hrg Beli (Opsional)</label><input type="number" className="w-full px-2 py-2 border rounded text-xs" value={editingProduct.buyPrice} onChange={e => setEditingProduct({...editingProduct, buyPrice: e.target.value})} /></div>
-                    <div><label className="block text-[10px] font-medium text-slate-500">Hrg Jual (Wajib)</label><input type="number" required className="w-full px-2 py-2 border rounded text-xs" value={editingProduct.price} onChange={e => setEditingProduct({...editingProduct, price: e.target.value})} /></div>
+                    <div><label className="block text-[10px] font-medium text-slate-500">Hrg Beli Barang Ini (Opsional)</label><input type="number" className="w-full px-2 py-2 border rounded text-xs" value={editingProduct.buyPrice} onChange={e => setEditingProduct({...editingProduct, buyPrice: e.target.value})} /></div>
+                    <div><label className="block text-[10px] font-medium text-slate-500">Hrg Jual Barang Ini (Wajib)</label><input type="number" required className="w-full px-2 py-2 border rounded text-xs" value={editingProduct.price} onChange={e => setEditingProduct({...editingProduct, price: e.target.value})} /></div>
                   </div>
                 </div>
               )}
@@ -2084,7 +2092,6 @@ export default function App() {
         </div>
       )}
 
-      {/* !!! INI ADALAH MODAL STOCK OPNAME YANG KEMBALI DIMASUKKAN !!! */}
       {/* Modal Tambah/Edit Opname */}
       {showOpnameModal && currentUser.role === 'admin' && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-4 z-[60]">
@@ -2158,8 +2165,6 @@ export default function App() {
           </div>
         </div>
       )}
-      {/* ============================================== */}
-
 
       {/* Modal Nota Penjualan */}
       {(showReceipt || viewingReceipt) && (() => {
