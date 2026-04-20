@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 // IMPORT FIREBASE
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { Search, ShoppingCart, Plus, Minus, Trash2, ReceiptText, Package, CheckCircle2, AlertCircle, X, FileText, BarChart3, Clock, Calendar, Filter, ListOrdered, Eye, User, Lock, LogOut, Edit3, ArrowUpDown, ChevronDown, TrendingUp, Activity, Download, Image as ImageIcon, LayoutGrid, List, ClipboardList, Wallet, TrendingDown } from 'lucide-react';
+import { getFirestore, collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
+import { Search, ShoppingCart, Plus, Minus, Trash2, ReceiptText, Package, CheckCircle2, AlertCircle, X, FileText, BarChart3, Clock, Calendar, Filter, ListOrdered, Eye, User, Lock, LogOut, Edit3, ArrowUpDown, ChevronDown, TrendingUp, Activity, Download, Image as ImageIcon, LayoutGrid, List, ClipboardList, Wallet, TrendingDown, Settings, Database, RotateCcw, ArchiveX, Upload, Check, Share2 } from 'lucide-react';
 
 // ==========================================
 // KONFIGURASI FIREBASE ANDA
@@ -82,6 +82,15 @@ export default function App() {
   // State untuk Laporan & Transaksi
   const [viewingReceipt, setViewingReceipt] = useState(null);
   const [transactionToDelete, setTransactionToDelete] = useState(null);
+  const [transactionToRestore, setTransactionToRestore] = useState(null);
+  const [transactionToPermanentDelete, setTransactionToPermanentDelete] = useState(null);
+  const [viewTrash, setViewTrash] = useState(false); // Toggle untuk lihat transaksi dihapus
+
+  // State untuk Sistem/Backup
+  const [fileToRestore, setFileToRestore] = useState(null);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [systemMsg, setSystemMsg] = useState({ type: '', text: '' });
+  const fileInputRef = React.useRef(null);
 
   // ==========================================
   // STATE BARU: STOCK OPNAME (Khusus Admin, Berdiri Sendiri)
@@ -152,6 +161,12 @@ export default function App() {
       setCurrentUser(user);
       localStorage.setItem('koperasiUser', JSON.stringify(user));
       setLoginForm({ username: '', password: '' });
+    } else if (username === 'backup' && password === 'backup') {
+      const user = { username: 'Database Admin', role: 'backup' };
+      setCurrentUser(user);
+      localStorage.setItem('koperasiUser', JSON.stringify(user));
+      setLoginForm({ username: '', password: '' });
+      setActiveTab('pengaturan');
     } else {
       setLoginError('Username atau password salah!');
     }
@@ -162,6 +177,7 @@ export default function App() {
     localStorage.removeItem('koperasiUser');
     setCart([]);
     setActiveTab("kasir");
+    setViewTrash(false);
   };
 
   // --- FUNGSI FORMAT & FILTER ---
@@ -324,7 +340,8 @@ export default function App() {
         payment: parseFloat(paymentAmount),
         change: changeAmount,
         cashier: currentUser.username,
-        customer: finalCustomerName
+        customer: finalCustomerName,
+        status: 'active' // Status flag for soft delete
       };
 
       const docRef = await addDoc(collection(db, 'sales'), transactionData);
@@ -355,7 +372,8 @@ export default function App() {
           sellPrice: item.price,
           timestamp: Date.now(),
           trxId: docRef.id,
-          isAuto: true
+          isAuto: true,
+          status: 'active' // Status flag
         };
         await addDoc(collection(db, 'stock_opname'), opnameData);
       }
@@ -423,6 +441,7 @@ export default function App() {
     }
   };
 
+  // --- FUNGSI SOFT DELETE TRANSAKSI ---
   const confirmDeleteTransaction = async () => {
     if (!transactionToDelete) return;
 
@@ -438,19 +457,162 @@ export default function App() {
         }
       }
 
-      // 2. Hapus dari riwayat transaksi
-      await deleteDoc(doc(db, 'sales', transactionToDelete.id));
+      // 2. Soft delete dari riwayat transaksi
+      await updateDoc(doc(db, 'sales', transactionToDelete.id), {
+        status: 'deleted',
+        deletedAt: Date.now()
+      });
 
-      // 3. Hapus otomatis dari catatan Opname yang berkaitan dengan transaksi ini
-      const opnamesToDelete = opnameData.filter(op => op.trxId === transactionToDelete.id);
-      for (const op of opnamesToDelete) {
-        await deleteDoc(doc(db, 'stock_opname', op.id));
+      // 3. Soft delete dari catatan Opname yang berkaitan
+      const opnamesToSoftDelete = opnameData.filter(op => op.trxId === transactionToDelete.id);
+      for (const op of opnamesToSoftDelete) {
+        await updateDoc(doc(db, 'stock_opname', op.id), { status: 'deleted' });
       }
 
       setTransactionToDelete(null);
     } catch (error) {
       setErrorMsg("Gagal membatalkan transaksi.");
     }
+  };
+
+  // --- FUNGSI RESTORE TRANSAKSI ---
+  const confirmRestoreTransaction = async () => {
+    if (!transactionToRestore) return;
+
+    try {
+      // 1. Cek ketersediaan stok sebelum merestore
+      for (const item of transactionToRestore.items) {
+        const originalProduct = products.find(p => p.id === item.id);
+        if (!originalProduct || originalProduct.stock < item.qty) {
+          setErrorMsg(`Gagal: Stok ${item.name} saat ini tidak mencukupi untuk mengembalikan transaksi!`);
+          setTransactionToRestore(null);
+          return;
+        }
+      }
+
+      // 2. Potong kembali stok gudang
+      for (const item of transactionToRestore.items) {
+        const productRef = doc(db, 'products', item.id);
+        const originalProduct = products.find(p => p.id === item.id);
+        await updateDoc(productRef, {
+          stock: originalProduct.stock - item.qty
+        });
+      }
+
+      // 3. Kembalikan status transaksi menjadi aktif
+      await updateDoc(doc(db, 'sales', transactionToRestore.id), {
+        status: 'active',
+        deletedAt: null
+      });
+
+      // 4. Kembalikan status opname
+      const opnamesToRestore = opnameData.filter(op => op.trxId === transactionToRestore.id);
+      for (const op of opnamesToRestore) {
+        await updateDoc(doc(db, 'stock_opname', op.id), { status: 'active' });
+      }
+
+      setTransactionToRestore(null);
+    } catch (error) {
+      setErrorMsg("Gagal merestore transaksi.");
+    }
+  };
+
+  // --- FUNGSI HAPUS PERMANEN TRANSAKSI ---
+  const confirmPermanentDeleteTransaction = async () => {
+    if (!transactionToPermanentDelete) return;
+    try {
+      // Hapus dari history sales
+      await deleteDoc(doc(db, 'sales', transactionToPermanentDelete.id));
+      
+      // Hapus dari catatan Opname jika ada
+      const opnamesToDelete = opnameData.filter(op => op.trxId === transactionToPermanentDelete.id);
+      for (const op of opnamesToDelete) {
+        await deleteDoc(doc(db, 'stock_opname', op.id));
+      }
+      
+      setTransactionToPermanentDelete(null);
+    } catch (error) {
+      setErrorMsg("Gagal menghapus transaksi secara permanen.");
+    }
+  };
+
+  // --- FUNGSI BACKUP DATABASE ---
+  const handleBackupDatabase = () => {
+    try {
+      const backupData = {
+        timestamp: new Date().toISOString(),
+        backupDate: getLocalDateString(),
+        data: {
+          products: products,
+          sales: salesHistory,
+          stock_opname: opnameData
+        }
+      };
+
+      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `Backup_DB_Koperasi_${getLocalDateString()}_${Date.now()}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setSystemMsg({ type: 'success', text: 'File backup berhasil diunduh.' });
+    } catch (error) {
+      setSystemMsg({ type: 'error', text: 'Gagal membuat file backup.' });
+    }
+  };
+
+  // --- FUNGSI RESTORE DATABASE ---
+  const handleFileSelection = (e) => {
+    const file = e.target.files[0];
+    if (file) setFileToRestore(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const executeRestoreDatabase = () => {
+    if (!fileToRestore) return;
+    setIsRestoring(true);
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        if (!parsed.data) throw new Error("Format file JSON tidak sesuai.");
+
+        const { products, sales, stock_opname } = parsed.data;
+
+        // Restore/Replace data menggunakan setDoc
+        if (products) {
+          for (const item of products) {
+            const { id, ...data } = item;
+            await setDoc(doc(db, 'products', id), data);
+          }
+        }
+        if (sales) {
+          for (const item of sales) {
+            const { id, ...data } = item;
+            await setDoc(doc(db, 'sales', id), data);
+          }
+        }
+        if (stock_opname) {
+          for (const item of stock_opname) {
+            const { id, ...data } = item;
+            await setDoc(doc(db, 'stock_opname', id), data);
+          }
+        }
+
+        setFileToRestore(null);
+        setSystemMsg({ type: 'success', text: 'Database berhasil dipulihkan dari file backup.' });
+      } catch (error) {
+        setFileToRestore(null);
+        setSystemMsg({ type: 'error', text: 'Gagal memulihkan database: ' + error.message });
+      } finally {
+        setIsRestoring(false);
+      }
+    };
+    reader.readAsText(fileToRestore);
   };
 
   // ==========================================
@@ -485,7 +647,8 @@ export default function App() {
         buyPrice: Number(opnameForm.buyPrice) || 0,
         outQty: Number(opnameForm.outQty) || 0,
         sellPrice: Number(opnameForm.sellPrice) || 0,
-        timestamp: opnameForm.timestamp || Date.now()
+        timestamp: opnameForm.timestamp || Date.now(),
+        status: 'active'
       };
 
       if (opnameForm.isAuto) dataToSave.isAuto = true;
@@ -519,8 +682,9 @@ export default function App() {
     }
   };
 
+  // Filter khusus opname (Hanya data aktif)
   const filteredOpnameData = opnameData
-    .filter(item => item.period === opnamePeriod)
+    .filter(item => item.period === opnamePeriod && item.status !== 'deleted')
     .sort((a, b) => {
       // Urutkan berdasarkan Tanggal dulu, baru berdasarkan waktu input (timestamp)
       const dateA = new Date(a.date || 0).getTime();
@@ -535,7 +699,7 @@ export default function App() {
   const opnameTotalLaba = filteredOpnameData.reduce((sum, item) => sum + ((item.outQty * item.sellPrice) - (item.outQty * item.buyPrice)), 0);
 
   // --- REPORT GENERATION ---
-  const downloadReceiptJPG = (data) => {
+  const getReceiptCanvas = (data) => {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     
@@ -611,13 +775,49 @@ export default function App() {
     ctx.textAlign = 'right';
     ctx.fillText(formatRupiah(data.change), 380, y);
 
+    return canvas;
+  };
+
+  const downloadReceiptJPG = (data) => {
+    const canvas = getReceiptCanvas(data);
     const link = document.createElement('a');
     link.download = `Nota_${data.customer.replace(/[^a-z0-9]/gi, '_')}_${data.id}.jpg`;
     link.href = canvas.toDataURL('image/jpeg', 1.0);
     link.click();
   };
 
-  const filteredHistory = salesHistory.filter(trx => {
+  const shareReceipt = async (data) => {
+    const canvas = getReceiptCanvas(data);
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], `Nota_${data.customer.replace(/[^a-z0-9]/gi, '_')}_${data.id}.jpg`, { type: 'image/jpeg' });
+      
+      const shareData = {
+        title: 'Nota Transaksi',
+        text: `Terima kasih! Berikut nota transaksi untuk ${data.customer}`,
+        files: [file]
+      };
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share(shareData);
+        } catch (error) {
+          console.log('Share dibatalkan atau gagal:', error);
+        }
+      } else {
+        // Fallback teks jika browser tidak mendukung fitur share gambar
+        const textFallback = `*KOPERASI DESA MERAH PUTIH*\nNota ID: #${data.id.toString().slice(-6)}\nPemesan: ${data.customer}\nTotal: ${formatRupiah(data.total)}\nTerima kasih!`;
+        if (navigator.share) {
+          navigator.share({ title: 'Nota Transaksi', text: textFallback }).catch(console.log);
+        } else {
+          alert("Browser Anda tidak mendukung fitur bagikan.");
+        }
+      }
+    }, 'image/jpeg', 1.0);
+  };
+
+  // FILTER UTAMA TRANSAKSI (Menerapkan Date & Search String)
+  const baseFilteredSales = salesHistory.filter(trx => {
     let isValid = true;
     const parts = trx.date.split(' ')[0].split('/'); 
     const trxDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`); 
@@ -639,15 +839,25 @@ export default function App() {
     return isValid;
   });
 
-  const totalRevenue = filteredHistory.reduce((sum, trx) => sum + trx.total, 0);
-  const totalProfit = filteredHistory.reduce((sum, trx) => {
+  // PEMBAGIAN DATA TRANSAKSI: Aktif vs Dibatalkan
+  const activeFilteredSales = baseFilteredSales.filter(trx => trx.status !== 'deleted');
+  const deletedFilteredSales = baseFilteredSales.filter(trx => trx.status === 'deleted');
+
+  // DATA UNTUK DITAMPILKAN DI TABEL (Tergantung Toggle View)
+  const displaySales = viewTrash ? deletedFilteredSales : activeFilteredSales;
+
+  // DATA UNTUK LAPORAN (Selalu gunakan yang Aktif saja)
+  const reportSales = activeFilteredSales;
+
+  const totalRevenue = reportSales.reduce((sum, trx) => sum + trx.total, 0);
+  const totalProfit = reportSales.reduce((sum, trx) => {
     const trxProfit = trx.items.reduce((itemSum, item) => itemSum + ((item.price - (item.buyPrice || item.price)) * item.qty), 0);
     return sum + trxProfit;
   }, 0);
-  const totalTransactionsCount = filteredHistory.length;
+  const totalTransactionsCount = reportSales.length;
   
   const itemSummary = {};
-  filteredHistory.forEach(trx => {
+  reportSales.forEach(trx => {
     trx.items.forEach(item => {
       if (!itemSummary[item.id]) {
         itemSummary[item.id] = { 
@@ -664,7 +874,7 @@ export default function App() {
   const topSellingItems = Object.values(itemSummary).sort((a, b) => b.qty - a.qty);
 
   const dailyTransactions = {};
-  filteredHistory.forEach(trx => {
+  reportSales.forEach(trx => {
     const dateStr = trx.date.split(' ')[0];
     if (!dailyTransactions[dateStr]) dailyTransactions[dateStr] = { count: 0, omset: 0, profit: 0 };
     dailyTransactions[dateStr].count += 1;
@@ -860,16 +1070,23 @@ export default function App() {
           </div>
         </div>
         
-        <div className="hidden md:flex items-center gap-4">
-          <div className="flex bg-red-700/50 rounded-lg p-1">
-            <button onClick={() => setActiveTab("kasir")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${activeTab === "kasir" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><ShoppingCart size={16} /> Kasir</button>
-            <button onClick={() => setActiveTab("transaksi")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${activeTab === "transaksi" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><ListOrdered size={16} /> Transaksi</button>
-            <button onClick={() => setActiveTab("laporan")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${activeTab === "laporan" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><BarChart3 size={16} /> Laporan</button>
+        <div className="hidden lg:flex items-center gap-4">
+          <div className="flex bg-red-700/50 rounded-lg p-1 overflow-x-auto">
+            {currentUser.role !== 'backup' && (
+              <>
+                <button onClick={() => setActiveTab("kasir")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${activeTab === "kasir" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><ShoppingCart size={16} /> Kasir</button>
+                <button onClick={() => setActiveTab("transaksi")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${activeTab === "transaksi" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><ListOrdered size={16} /> Transaksi</button>
+                <button onClick={() => setActiveTab("laporan")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${activeTab === "laporan" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><BarChart3 size={16} /> Laporan</button>
+              </>
+            )}
             {currentUser.role === 'admin' && (
               <>
-                <button onClick={() => setActiveTab("gudang")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${activeTab === "gudang" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><Package size={16} /> Gudang</button>
-                <button onClick={() => setActiveTab("opname")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${activeTab === "opname" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><ClipboardList size={16} /> Opname</button>
+                <button onClick={() => setActiveTab("gudang")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${activeTab === "gudang" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><Package size={16} /> Gudang</button>
+                <button onClick={() => setActiveTab("opname")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${activeTab === "opname" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><ClipboardList size={16} /> Opname</button>
               </>
+            )}
+            {currentUser.role === 'backup' && (
+              <button onClick={() => setActiveTab("pengaturan")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${activeTab === "pengaturan" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><Database size={16} /> Kelola Database</button>
             )}
           </div>
           <div className="flex items-center gap-3 border-l border-red-500 pl-4">
@@ -881,7 +1098,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="md:hidden flex items-center gap-2">
+        <div className="lg:hidden flex items-center gap-2">
            <div className="flex flex-col items-end">
              <span className="text-xs font-bold leading-tight">{currentUser.username}</span>
            </div>
@@ -1137,15 +1354,26 @@ export default function App() {
         {activeTab === "transaksi" && (
           <div className="h-full overflow-y-auto p-2 md:p-4 pb-20 md:pb-4">
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3 md:p-6 w-full max-w-7xl mx-auto">
-              <h2 className="text-lg md:text-2xl font-bold text-slate-800 flex items-center gap-2 mb-4"><ListOrdered className="text-red-600 w-5 h-5" /> Riwayat Transaksi</h2>
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-4">
+                <h2 className="text-lg md:text-2xl font-bold text-slate-800 flex items-center gap-2"><ListOrdered className="text-red-600 w-5 h-5" /> Riwayat Transaksi</h2>
+                
+                {currentUser.role === 'admin' && (
+                  <div className="flex bg-slate-100 p-1 rounded-lg w-full md:w-auto">
+                    <button onClick={() => setViewTrash(false)} className={`flex-1 md:flex-none px-4 py-1.5 text-xs md:text-sm font-bold rounded-md transition-all ${!viewTrash ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Transaksi Aktif</button>
+                    <button onClick={() => setViewTrash(true)} className={`flex-1 md:flex-none px-4 py-1.5 text-xs md:text-sm font-bold rounded-md transition-all flex items-center justify-center gap-1.5 ${viewTrash ? 'bg-red-100 text-red-700 shadow-sm' : 'text-slate-500 hover:text-red-600'}`}><ArchiveX size={14}/> Dibatalkan</button>
+                  </div>
+                )}
+              </div>
+
               {renderFilterPanel(true)}
-              {filteredHistory.length === 0 ? (
-                <div className="text-center py-12 text-slate-500"><ReceiptText size={40} className="mx-auto mb-3 opacity-20" /><p className="text-sm md:text-base">Belum ada riwayat transaksi.</p></div>
+              
+              {displaySales.length === 0 ? (
+                <div className="text-center py-12 text-slate-500"><ReceiptText size={40} className="mx-auto mb-3 opacity-20" /><p className="text-sm md:text-base">{viewTrash ? 'Tidak ada transaksi yang dibatalkan.' : 'Belum ada riwayat transaksi.'}</p></div>
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-slate-200">
                   <table className="w-full text-left border-collapse whitespace-nowrap">
                     <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-xs md:text-sm">
+                      <tr className={`${viewTrash ? 'bg-red-50' : 'bg-slate-50'} border-b border-slate-200 text-slate-600 text-xs md:text-sm`}>
                         <th className="px-3 py-3 md:p-4 font-semibold">ID Transaksi</th>
                         <th className="px-3 py-3 md:p-4 font-semibold">Waktu</th>
                         <th className="px-3 py-3 md:p-4 font-semibold">Pemesan</th>
@@ -1154,15 +1382,25 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredHistory.map((trx) => (
-                        <tr key={trx.id} className="border-b border-slate-100 hover:bg-slate-50">
+                      {displaySales.map((trx) => (
+                        <tr key={trx.id} className={`border-b border-slate-100 hover:bg-slate-50 ${viewTrash ? 'opacity-70' : ''}`}>
                           <td className="px-3 py-3 md:p-4 text-xs md:text-sm text-slate-900 font-bold font-mono">#{trx.id.toString().slice(-6)}</td>
                           <td className="px-3 py-3 md:p-4 text-xs md:text-sm text-slate-600">{trx.date.split(' ')[1]} <span className="text-[10px] text-slate-400 block">{trx.date.split(' ')[0]}</span></td>
-                          <td className="px-3 py-3 md:p-4 text-xs md:text-sm font-semibold text-slate-800">{trx.customer}</td>
+                          <td className="px-3 py-3 md:p-4 text-xs md:text-sm font-semibold text-slate-800">
+                            {trx.customer} 
+                            {viewTrash && <span className="ml-2 bg-red-100 text-red-600 text-[9px] px-1.5 py-0.5 rounded uppercase font-bold">Batal</span>}
+                          </td>
                           <td className="px-3 py-3 md:p-4 text-xs md:text-sm font-bold text-slate-800 text-right">{formatRupiah(trx.total)}</td>
                           <td className="px-3 py-3 md:p-4 flex items-center justify-center gap-1.5">
                             <button onClick={() => setViewingReceipt(trx)} className="bg-white border border-slate-200 text-slate-600 px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm"><Eye size={14} /> Nota</button>
-                            <button onClick={() => setTransactionToDelete(trx)} className="bg-red-50 text-red-600 px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"><Trash2 size={14} /> Batal</button>
+                            {!viewTrash ? (
+                              <button onClick={() => setTransactionToDelete(trx)} className="bg-red-50 text-red-600 px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"><Trash2 size={14} /> Batal</button>
+                            ) : (
+                              <>
+                                <button onClick={() => setTransactionToRestore(trx)} className="bg-green-50 text-green-700 px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"><RotateCcw size={14} /> Restore</button>
+                                <button onClick={() => setTransactionToPermanentDelete(trx)} className="bg-red-50 text-red-700 px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1" title="Hapus Permanen"><Trash2 size={14} /></button>
+                              </>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -1181,8 +1419,8 @@ export default function App() {
               <h2 className="text-lg md:text-2xl font-bold text-slate-800 flex items-center gap-2 mb-4"><BarChart3 className="text-red-600 w-5 h-5" /> Ringkasan Penjualan</h2>
               {renderFilterPanel(false)}
 
-              {filteredHistory.length === 0 ? (
-                <div className="text-center py-12 text-slate-500"><BarChart3 size={40} className="mx-auto mb-3 opacity-20" /><p className="text-sm md:text-base">Belum ada data penjualan.</p></div>
+              {reportSales.length === 0 ? (
+                <div className="text-center py-12 text-slate-500"><BarChart3 size={40} className="mx-auto mb-3 opacity-20" /><p className="text-sm md:text-base">Belum ada data penjualan aktif.</p></div>
               ) : (
                 <div className="space-y-4 md:space-y-6">
                   {/* Tab Laporan */}
@@ -1477,7 +1715,7 @@ export default function App() {
                   <tbody>
                     {filteredOpnameData.length === 0 ? (
                       <tr>
-                        <td colSpan="9" className="px-4 py-8 text-center text-slate-400 text-sm">Belum ada catatan opname di bulan ini.</td>
+                        <td colSpan="9" className="px-4 py-8 text-center text-slate-400 text-sm">Belum ada catatan opname aktif di bulan ini.</td>
                       </tr>
                     ) : (
                       filteredOpnameData.map((item) => {
@@ -1564,33 +1802,66 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* Konten PENGATURAN (Khusus Admin: Backup Database) */}
+        {activeTab === "pengaturan" && currentUser.role === 'admin' && (
+           <div className="h-full overflow-y-auto p-2 md:p-4 pb-20 md:pb-4 bg-slate-50">
+             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-8 w-full max-w-3xl mx-auto flex flex-col items-center text-center">
+               <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+                 <Settings size={40} className="text-slate-600" />
+               </div>
+               <h2 className="text-2xl md:text-3xl font-black text-slate-800 mb-2">Pengaturan Sistem</h2>
+               <p className="text-slate-500 text-sm md:text-base mb-8 max-w-md">Lakukan pencadangan (backup) data secara rutin untuk menghindari kehilangan data penting koperasi Anda.</p>
+
+               <div className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-5 md:p-8 flex flex-col items-center">
+                 <Database size={48} className="text-blue-600 mb-4" />
+                 <h3 className="text-lg font-bold text-slate-800 mb-1">Backup Keseluruhan Database</h3>
+                 <p className="text-xs text-slate-500 mb-6">Tindakan ini akan mengunduh file <span className="font-mono text-slate-700 bg-slate-200 px-1 rounded">.json</span> yang berisi riwayat transaksi, data barang, dan catatan opname.</p>
+                 
+                 <button onClick={handleBackupDatabase} className="w-full sm:w-auto px-8 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all active:scale-95 flex justify-center items-center gap-2">
+                   <Download size={18} /> Unduh File Backup Sekarang
+                 </button>
+               </div>
+             </div>
+           </div>
+        )}
       </div>
 
       {/* Navigasi Bawah Khusus Mobile */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 pb-safe flex justify-around items-center px-1 py-1.5 shadow-[0_-4px_10px_rgb(0,0,0,0.05)]">
-        <button onClick={() => { setActiveTab("kasir"); setShowMobileCart(false); }} className={`flex flex-col items-center p-2 ${currentUser.role === 'admin' ? 'w-1/5' : 'w-1/4'} ${activeTab === "kasir" ? "text-red-600" : "text-slate-400"}`}>
-          <ShoppingCart size={20} className={activeTab === "kasir" ? "fill-red-100" : ""} />
-          <span className="text-[10px] font-bold mt-1">Kasir</span>
-        </button>
-        <button onClick={() => setActiveTab("transaksi")} className={`flex flex-col items-center p-2 ${currentUser.role === 'admin' ? 'w-1/5' : 'w-1/4'} ${activeTab === "transaksi" ? "text-red-600" : "text-slate-400"}`}>
-          <ListOrdered size={20} />
-          <span className="text-[10px] font-bold mt-1">Transaksi</span>
-        </button>
-        <button onClick={() => setActiveTab("laporan")} className={`flex flex-col items-center p-2 ${currentUser.role === 'admin' ? 'w-1/5' : 'w-1/4'} ${activeTab === "laporan" ? "text-red-600" : "text-slate-400"}`}>
-          <BarChart3 size={20} />
-          <span className="text-[10px] font-bold mt-1">Laporan</span>
-        </button>
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 pb-safe flex overflow-x-auto hide-scrollbar shadow-[0_-4px_10px_rgb(0,0,0,0.05)]">
+        {currentUser.role !== 'backup' && (
+          <>
+            <button onClick={() => { setActiveTab("kasir"); setShowMobileCart(false); }} className={`flex-shrink-0 flex flex-col items-center justify-center py-2 min-w-[70px] flex-1 ${activeTab === "kasir" ? "text-red-600 bg-red-50/50" : "text-slate-400"}`}>
+              <ShoppingCart size={20} className={activeTab === "kasir" ? "fill-red-100" : ""} />
+              <span className="text-[10px] font-bold mt-1">Kasir</span>
+            </button>
+            <button onClick={() => setActiveTab("transaksi")} className={`flex-shrink-0 flex flex-col items-center justify-center py-2 min-w-[70px] flex-1 ${activeTab === "transaksi" ? "text-red-600 bg-red-50/50" : "text-slate-400"}`}>
+              <ListOrdered size={20} />
+              <span className="text-[10px] font-bold mt-1">Transaksi</span>
+            </button>
+            <button onClick={() => setActiveTab("laporan")} className={`flex-shrink-0 flex flex-col items-center justify-center py-2 min-w-[70px] flex-1 ${activeTab === "laporan" ? "text-red-600 bg-red-50/50" : "text-slate-400"}`}>
+              <BarChart3 size={20} />
+              <span className="text-[10px] font-bold mt-1">Laporan</span>
+            </button>
+          </>
+        )}
         {currentUser.role === 'admin' && (
           <>
-            <button onClick={() => setActiveTab("gudang")} className={`flex flex-col items-center p-2 w-1/5 ${activeTab === "gudang" ? "text-red-600" : "text-slate-400"}`}>
+            <button onClick={() => setActiveTab("gudang")} className={`flex-shrink-0 flex flex-col items-center justify-center py-2 min-w-[70px] flex-1 ${activeTab === "gudang" ? "text-red-600 bg-red-50/50" : "text-slate-400"}`}>
               <Package size={20} />
               <span className="text-[10px] font-bold mt-1">Gudang</span>
             </button>
-            <button onClick={() => setActiveTab("opname")} className={`flex flex-col items-center p-2 w-1/5 ${activeTab === "opname" ? "text-indigo-600" : "text-slate-400"}`}>
+            <button onClick={() => setActiveTab("opname")} className={`flex-shrink-0 flex flex-col items-center justify-center py-2 min-w-[70px] flex-1 ${activeTab === "opname" ? "text-indigo-600 bg-indigo-50/50" : "text-slate-400"}`}>
               <ClipboardList size={20} />
               <span className="text-[10px] font-bold mt-1">Opname</span>
             </button>
           </>
+        )}
+        {currentUser.role === 'backup' && (
+          <button onClick={() => setActiveTab("pengaturan")} className={`flex-shrink-0 flex flex-col items-center justify-center py-2 min-w-[70px] flex-1 ${activeTab === "pengaturan" ? "text-blue-600 bg-blue-50/50" : "text-slate-400"}`}>
+            <Database size={20} />
+            <span className="text-[10px] font-bold mt-1">Database</span>
+          </button>
         )}
       </nav>
 
@@ -1605,16 +1876,21 @@ export default function App() {
               <button onClick={() => isCheckout ? setShowReceipt(false) : setViewingReceipt(null)} className="absolute top-4 right-4 text-slate-400 bg-slate-100 p-1.5 rounded-full z-10"><X size={18} /></button>
               <div className="p-5 md:p-6 overflow-y-auto">
                 <div className="text-center mb-5">
-                  <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-2 ${isCheckout ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-600'}`}>
-                    {isCheckout ? <CheckCircle2 size={28} /> : <ReceiptText size={28} />}
+                  <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-2 ${isCheckout ? 'bg-green-100 text-green-600' : data.status === 'deleted' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-600'}`}>
+                    {isCheckout ? <CheckCircle2 size={28} /> : data.status === 'deleted' ? <ArchiveX size={28} /> : <ReceiptText size={28} />}
                   </div>
-                  <h3 className="text-lg font-black text-slate-800">{isCheckout ? 'Pembayaran Berhasil' : 'Salinan Nota'}</h3>
+                  <h3 className="text-lg font-black text-slate-800">{isCheckout ? 'Pembayaran Berhasil' : data.status === 'deleted' ? 'Nota Dibatalkan' : 'Salinan Nota'}</h3>
                   <p className="text-slate-500 text-[11px] mt-1">{data.date}</p>
                   <p className="text-slate-400 text-[11px] mt-0.5 font-mono">ID: #{data.id.toString().slice(-6)} | Kasir: {data.cashier || '-'}</p>
                 </div>
-                <div className="border-t border-b border-dashed border-slate-300 py-3 mb-3">
+                <div className="border-t border-b border-dashed border-slate-300 py-3 mb-3 relative">
+                  {data.status === 'deleted' && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20 z-0">
+                      <span className="text-4xl font-black text-red-600 -rotate-12 border-4 border-red-600 px-4 py-1">DIBATALKAN</span>
+                    </div>
+                  )}
                   <p className="font-bold text-center text-slate-800 text-xs mb-3">KOPERASI DESA MERAH PUTIH</p>
-                  <div className="space-y-1.5">
+                  <div className="space-y-1.5 relative z-10">
                     {data.items.map((item, index) => (
                       <div key={index} className="flex justify-between text-xs">
                         <span className="text-slate-600">{item.name} x{item.qty}</span>
@@ -1630,10 +1906,15 @@ export default function App() {
                 </div>
                 
                 <div className="mt-6 space-y-2">
-                  <button onClick={() => downloadReceiptJPG(data)} className="w-full py-2.5 font-bold rounded-xl text-white bg-blue-600 flex justify-center items-center gap-2 text-sm">
-                    <ImageIcon size={16} /> Unduh Nota (JPG)
-                  </button>
-                  <button onClick={() => isCheckout ? setShowReceipt(false) : setViewingReceipt(null)} className={`w-full py-2.5 font-bold rounded-xl text-sm ${isCheckout ? 'bg-slate-100 text-slate-800' : 'bg-red-600 text-white'}`}>
+                  <div className="flex gap-2">
+                    <button onClick={() => downloadReceiptJPG(data)} className="flex-1 py-2.5 font-bold rounded-xl text-white bg-blue-600 hover:bg-blue-700 flex justify-center items-center gap-2 text-sm transition-colors">
+                      <ImageIcon size={16} /> Unduh JPG
+                    </button>
+                    <button onClick={() => shareReceipt(data)} className="flex-1 py-2.5 font-bold rounded-xl text-white bg-green-600 hover:bg-green-700 flex justify-center items-center gap-2 text-sm transition-colors">
+                      <Share2 size={16} /> Bagikan Nota
+                    </button>
+                  </div>
+                  <button onClick={() => isCheckout ? setShowReceipt(false) : setViewingReceipt(null)} className={`w-full py-2.5 font-bold rounded-xl text-sm ${isCheckout ? 'bg-slate-100 text-slate-800 hover:bg-slate-200' : 'bg-red-600 text-white hover:bg-red-700'} transition-colors`}>
                     {isCheckout ? 'Tutup & Transaksi Baru' : 'Tutup Salinan'}
                   </button>
                 </div>
@@ -1721,13 +2002,13 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal Konfirmasi Hapus Transaksi Gudang/POS */}
+      {/* Modal Konfirmasi Hapus Transaksi (Soft Delete) */}
       {transactionToDelete && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
           <div className="bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl p-5 text-center">
             <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-3"><AlertCircle size={28} /></div>
             <h3 className="text-lg font-black text-slate-800 mb-1">Batalkan Transaksi?</h3>
-            <p className="text-slate-500 text-xs mb-5">Stok barang akan otomatis dikembalikan ke dalam server gudang.</p>
+            <p className="text-slate-500 text-xs mb-5">Stok barang akan dikembalikan ke dalam server. Transaksi masuk ke tab "Dibatalkan".</p>
             <div className="flex gap-2">
               <button onClick={() => setTransactionToDelete(null)} className="flex-1 py-2 bg-slate-100 font-bold rounded-lg text-xs text-slate-700">Kembali</button>
               <button onClick={confirmDeleteTransaction} className="flex-1 py-2 bg-red-600 text-white font-bold rounded-lg text-xs">Ya, Batalkan</button>
@@ -1736,10 +2017,39 @@ export default function App() {
         </div>
       )}
 
-      {/* =========================================
-          MODALS BARU UNTUK STOCK OPNAME 
-          ========================================= */}
-      
+      {/* Modal Konfirmasi Hapus Transaksi Permanen */}
+      {transactionToPermanentDelete && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
+          <div className="bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl p-5 text-center">
+            <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-3"><Trash2 size={28} /></div>
+            <h3 className="text-lg font-black text-slate-800 mb-1">Hapus Permanen?</h3>
+            <p className="text-slate-500 text-xs mb-5">Transaksi ini akan hilang dari sistem selamanya dan tidak dapat dikembalikan lagi. Stok barang tidak akan terpengaruh.</p>
+            <div className="flex gap-2">
+              <button onClick={() => setTransactionToPermanentDelete(null)} className="flex-1 py-2 bg-slate-100 font-bold rounded-lg text-xs text-slate-700">Batal</button>
+              <button onClick={confirmPermanentDeleteTransaction} className="flex-1 py-2 bg-red-600 text-white font-bold rounded-lg text-xs">Hapus Permanen</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Restore Transaksi */}
+      {transactionToRestore && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
+          <div className="bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl p-5 text-center">
+            <div className="w-14 h-14 bg-green-100 text-green-700 rounded-full flex items-center justify-center mx-auto mb-3"><RotateCcw size={28} /></div>
+            <h3 className="text-lg font-black text-slate-800 mb-1">Kembalikan Transaksi?</h3>
+            <p className="text-slate-500 text-[11px] mb-3 leading-tight">Transaksi ini akan dikembalikan ke sistem aktif. Pastikan stok barang masih ada di gudang sebelum melanjutkan.</p>
+            
+            {errorMsg && <div className="mb-3 text-[10px] text-red-600 bg-red-50 p-2 rounded text-left font-medium">{errorMsg}</div>}
+
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => { setTransactionToRestore(null); setErrorMsg(""); }} className="flex-1 py-2 bg-slate-100 font-bold rounded-lg text-xs text-slate-700">Tutup</button>
+              <button onClick={confirmRestoreTransaction} className="flex-1 py-2 bg-green-600 text-white font-bold rounded-lg text-xs hover:bg-green-700">Restore Data</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Form Tambah/Edit Opname */}
       {showOpnameModal && currentUser.role === 'admin' && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-4 z-[60]">
@@ -1825,6 +2135,82 @@ export default function App() {
               <button onClick={() => setOpnameToDelete(null)} className="flex-1 py-2 bg-slate-100 font-bold rounded-lg text-xs text-slate-700 hover:bg-slate-200">Kembali</button>
               <button onClick={executeDeleteOpname} className="flex-1 py-2 bg-red-600 text-white font-bold rounded-lg text-xs hover:bg-red-700">Ya, Hapus</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Konten PENGATURAN (Khusus Akun Backup Database) */}
+      {activeTab === "pengaturan" && currentUser.role === 'backup' && (
+         <div className="h-full overflow-y-auto p-2 md:p-4 pb-20 md:pb-4 bg-slate-50">
+           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-8 w-full max-w-4xl mx-auto flex flex-col items-center text-center">
+             <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+               <Database size={40} className="text-slate-600" />
+             </div>
+             <h2 className="text-2xl md:text-3xl font-black text-slate-800 mb-2">Manajemen Database</h2>
+             <p className="text-slate-500 text-sm md:text-base mb-8 max-w-lg">Gunakan fitur ini dengan bijak. Lakukan pencadangan (backup) atau pemulihan (restore) data sistem secara menyeluruh.</p>
+
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 w-full">
+               {/* Panel Backup */}
+               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 md:p-8 flex flex-col items-center relative overflow-hidden">
+                 <div className="absolute top-0 right-0 bg-blue-100 text-blue-700 text-[10px] font-bold px-3 py-1 rounded-bl-xl">AMAN</div>
+                 <Download size={40} className="text-blue-600 mb-4" />
+                 <h3 className="text-lg font-bold text-slate-800 mb-2">Backup Database</h3>
+                 <p className="text-xs text-slate-500 mb-6 flex-1">Unduh file <span className="font-mono text-slate-700 bg-slate-200 px-1 rounded">.json</span> berisi seluruh data barang, transaksi, dan opname ke perangkat Anda.</p>
+                 <button onClick={handleBackupDatabase} className="w-full px-6 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-[0.98] flex justify-center items-center gap-2">
+                   <Download size={18} /> Unduh File Backup
+                 </button>
+               </div>
+
+               {/* Panel Restore */}
+               <div className="bg-red-50 border border-red-200 rounded-2xl p-5 md:p-8 flex flex-col items-center relative overflow-hidden">
+                 <div className="absolute top-0 right-0 bg-red-200 text-red-800 text-[10px] font-bold px-3 py-1 rounded-bl-xl">BAHAYA</div>
+                 <Upload size={40} className="text-red-600 mb-4" />
+                 <h3 className="text-lg font-bold text-slate-800 mb-2">Restore Database</h3>
+                 <p className="text-xs text-slate-500 mb-6 flex-1 text-red-700">Unggah file backup <span className="font-mono text-red-900 bg-red-100 px-1 rounded">.json</span>. <strong className="text-red-800 block mt-1">Peringatan: Data saat ini akan tertimpa!</strong></p>
+                 
+                 <input type="file" accept=".json" ref={fileInputRef} onChange={handleFileSelection} className="hidden" />
+                 <button onClick={() => fileInputRef.current?.click()} className="w-full px-6 py-3.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-[0.98] flex justify-center items-center gap-2">
+                   <Upload size={18} /> Unggah & Pulihkan Data
+                 </button>
+               </div>
+             </div>
+           </div>
+         </div>
+      )}
+      
+      {/* Modal Konfirmasi Restore File JSON */}
+      {fileToRestore && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[80]">
+          <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl p-6 text-center">
+            <div className="w-14 h-14 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mx-auto mb-4"><Upload size={28} /></div>
+            <h3 className="text-xl font-black text-slate-800 mb-2">Peringatan Penting!</h3>
+            <p className="text-slate-600 text-sm mb-4 leading-relaxed">Anda akan memulihkan data dari file: <br/><span className="font-mono bg-slate-100 px-2 py-1 rounded mt-2 block break-all text-xs text-slate-800">{fileToRestore.name}</span></p>
+            <div className="bg-red-50 text-red-700 p-3 rounded-lg text-xs font-medium mb-6 text-left border border-red-200">
+              Data yang ada di sistem saat ini dengan ID yang sama akan <strong>TERTIMPA/TERHAPUS</strong>. Proses ini tidak dapat dibatalkan.
+            </div>
+            
+            <div className="flex gap-3">
+              <button onClick={() => { setFileToRestore(null); if(fileInputRef.current) fileInputRef.current.value = ''; }} className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 font-bold rounded-xl text-sm text-slate-700 transition-colors" disabled={isRestoring}>Batal</button>
+              <button onClick={executeRestoreDatabase} className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-sm transition-colors flex justify-center items-center gap-2" disabled={isRestoring}>
+                {isRestoring ? <span className="animate-pulse">Memproses...</span> : "Ya, Pulihkan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pesan Sistem Pop-up */}
+      {systemMsg.text && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-[90]">
+          <div className="bg-white rounded-xl shadow-2xl p-5 text-center max-w-xs w-full animate-in zoom-in-95">
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 ${systemMsg.type === 'error' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+              {systemMsg.type === 'error' ? <AlertCircle size={24} /> : <Check size={24} />}
+            </div>
+            <h3 className={`text-lg font-black mb-1 ${systemMsg.type === 'error' ? 'text-red-700' : 'text-green-700'}`}>
+              {systemMsg.type === 'error' ? 'Gagal' : 'Berhasil'}
+            </h3>
+            <p className="text-slate-600 text-sm mb-5">{systemMsg.text}</p>
+            <button onClick={() => setSystemMsg({ type: '', text: '' })} className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-lg text-sm transition-colors">OK Mengerti</button>
           </div>
         </div>
       )}
