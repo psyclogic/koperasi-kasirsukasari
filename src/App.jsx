@@ -28,13 +28,12 @@ const auth = getAuth(app);
 const LogoKoperasi = ({ sizeClass = "w-16 h-16", iconSize = 32 }) => {
   const [hasError, setHasError] = useState(false);
   return (
-    // Menggunakan rounded-xl untuk kotak dengan sudut melengkung
     <div className={`bg-white rounded-xl flex items-center justify-center shadow-md overflow-hidden shrink-0 ${sizeClass}`}>
       {!hasError ? (
         <img 
-          src="LOGO KDMP SUKASARI.png" // Mengembalikan ke .png sesuai permintaan
+          src="LOGO KDMP SUKASARI.png"
           alt="Logo Koperasi" 
-          className="w-full h-full object-contain p-1" // object-contain agar logo utuh tidak terpotong
+          className="w-full h-full object-contain p-1"
           onError={() => setHasError(true)} 
         />
       ) : (
@@ -73,13 +72,14 @@ export default function App() {
   const [viewMode, setViewMode] = useState("list"); 
   const [showCategoryMenu, setShowCategoryMenu] = useState(false); 
   
-  // State untuk Tambah & Edit Barang (Khusus Admin)
+  // State untuk Tambah, Edit, & Hapus Barang (Khusus Admin)
   const [showAddModal, setShowAddModal] = useState(false);
   const [newProduct, setNewProduct] = useState({ 
     code: '', name: '', buyPrice: '', price: '', stock: '', category: 'Sembako',
     hasVariations: false, variations: [], useLinkedStock: false, linkedProductId: ''
   });
   const [editingProduct, setEditingProduct] = useState(null);
+  const [productToDelete, setProductToDelete] = useState(null); // State Baru untuk Hapus Barang
   
   // State untuk Sorting Gudang
   const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
@@ -192,7 +192,7 @@ export default function App() {
       const lowest = Math.min(...product.variations.map(v => Number(v.price)));
       return lowest;
     }
-    return Number(product.price);
+    return Number(product.price) || 0;
   };
 
   const handleLogin = async (e) => {
@@ -477,7 +477,7 @@ export default function App() {
     const stateModifier = isNew ? setNewProduct : setEditingProduct;
     stateModifier(prev => ({
       ...prev,
-      variations: [...prev.variations, { id: Date.now().toString() + Math.random(), name: '', code: '', buyPrice: '', price: '', stock: '' }]
+      variations: [...(prev.variations || []), { id: Date.now().toString() + Math.random(), name: '', code: '', buyPrice: '', price: '', stock: '' }]
     }));
   };
 
@@ -485,27 +485,33 @@ export default function App() {
     const stateModifier = isNew ? setNewProduct : setEditingProduct;
     stateModifier(prev => ({
       ...prev,
-      variations: prev.variations.filter((_, i) => i !== index)
+      variations: (prev.variations || []).filter((_, i) => i !== index)
     }));
   };
 
+  // --- Fungsi Handle Tambah Barang ---
   const handleSaveProduct = async (e) => {
     e.preventDefault();
     if (!newProduct.name || !newProduct.category) return setErrorMsg("Mohon lengkapi nama dan kategori!");
     
     let finalStock = 0;
     if (newProduct.hasVariations) {
-      if (newProduct.variations.length === 0) return setErrorMsg("Mohon tambah minimal 1 variasi barang!");
+      if (!newProduct.variations || newProduct.variations.length === 0) return setErrorMsg("Mohon tambah minimal 1 variasi barang!");
       for (const v of newProduct.variations) {
-        if (!v.name || !v.price || !v.stock) return setErrorMsg("Lengkapi nama, harga jual, dan stok di semua variasi!");
+        // Pengecekan ketat agar angka 0 tetap lolos validasi tapi kosong dilarang
+        if (!v.name || v.price === '' || v.price === undefined || v.stock === '' || v.stock === undefined) {
+          return setErrorMsg("Lengkapi nama, harga jual, dan stok di semua variasi!");
+        }
       }
       finalStock = newProduct.variations.reduce((sum, v) => sum + Number(v.stock || 0), 0);
     } else if (newProduct.useLinkedStock) {
       if (!newProduct.linkedProductId) return setErrorMsg("Pilih barang induk untuk disambungkan stoknya!");
-      if (!newProduct.price) return setErrorMsg("Mohon lengkapi Harga Jual barang ini!");
+      if (newProduct.price === '' || newProduct.price === undefined) return setErrorMsg("Mohon lengkapi Harga Jual barang ini!");
       finalStock = 0; 
     } else {
-      if (!newProduct.price || !newProduct.stock) return setErrorMsg("Lengkapi harga dan stok barang!");
+      if (newProduct.price === '' || newProduct.price === undefined || newProduct.stock === '' || newProduct.stock === undefined) {
+        return setErrorMsg("Lengkapi harga dan stok barang!");
+      }
       finalStock = Number(newProduct.stock);
     }
 
@@ -515,9 +521,9 @@ export default function App() {
         name: newProduct.name,
         category: newProduct.category || "Sembako",
         hasVariations: newProduct.hasVariations,
-        variations: newProduct.hasVariations ? newProduct.variations : [],
+        variations: newProduct.hasVariations ? (newProduct.variations || []) : [],
         useLinkedStock: newProduct.useLinkedStock,
-        linkedProductId: newProduct.useLinkedStock ? newProduct.linkedProductId : '',
+        linkedProductId: newProduct.useLinkedStock ? (newProduct.linkedProductId || '') : '',
         buyPrice: newProduct.hasVariations ? 0 : parseFloat(newProduct.buyPrice || 0),
         price: newProduct.hasVariations ? 0 : parseFloat(newProduct.price || 0),
         stock: finalStock,
@@ -527,41 +533,51 @@ export default function App() {
       setShowAddModal(false);
       setNewProduct({ code: '', name: '', buyPrice: '', price: '', stock: '', category: 'Sembako', hasVariations: false, variations: [], useLinkedStock: false, linkedProductId: '' });
       setErrorMsg("");
+      setSystemMsg({ type: 'success', text: 'Barang berhasil ditambahkan ke gudang.' });
     } catch (error) {
       setErrorMsg("Gagal menyimpan data barang ke server.");
     }
   };
 
+  // --- Fungsi Handle Edit Barang (SUDAN DIPERBAIKI UNTUK DATA LAMA) ---
   const handleUpdateProduct = async (e) => {
     e.preventDefault();
     if (!editingProduct.name) return setErrorMsg("Mohon lengkapi nama!");
 
     let finalStock = 0;
     if (editingProduct.hasVariations) {
-      if (editingProduct.variations.length === 0) return setErrorMsg("Mohon tambah minimal 1 variasi barang!");
+      if (!editingProduct.variations || editingProduct.variations.length === 0) return setErrorMsg("Mohon tambah minimal 1 variasi barang!");
       for (const v of editingProduct.variations) {
-        if (!v.name || !v.price || !v.stock) return setErrorMsg("Lengkapi nama, harga jual, dan stok di semua variasi!");
+        // Pengecekan ketat agar 0 lolos, tapi kosong / undefined tidak
+        if (!v.name || v.price === '' || v.price === undefined || v.stock === '' || v.stock === undefined) {
+          return setErrorMsg("Lengkapi nama, harga jual, dan stok di semua variasi!");
+        }
       }
       finalStock = editingProduct.variations.reduce((sum, v) => sum + Number(v.stock || 0), 0);
     } else if (editingProduct.useLinkedStock) {
       if (!editingProduct.linkedProductId) return setErrorMsg("Pilih barang induk untuk disambungkan stoknya!");
-      if (!editingProduct.price) return setErrorMsg("Mohon lengkapi Harga Jual barang ini!");
+      if (editingProduct.price === '' || editingProduct.price === undefined) return setErrorMsg("Mohon lengkapi Harga Jual barang ini!");
       finalStock = 0; 
     } else {
-      if (!editingProduct.price || !editingProduct.stock) return setErrorMsg("Lengkapi harga dan stok barang!");
+      // PERBAIKAN: Sebelumnya pakai (!editingProduct.price), sehingga angka 0 (nol) dianggap salah dan gagal simpan.
+      if (editingProduct.price === '' || editingProduct.price === undefined || editingProduct.stock === '' || editingProduct.stock === undefined) {
+        return setErrorMsg("Lengkapi harga dan stok barang!");
+      }
       finalStock = Number(editingProduct.stock);
     }
 
     try {
       const productRef = doc(db, 'products', editingProduct.id);
+      
+      // Update menggunakan nilai default (fallback) agar data lama yang tidak punya field tertentu tidak error
       await updateDoc(productRef, {
         code: editingProduct.code || '',
-        name: editingProduct.name,
-        category: editingProduct.category,
-        hasVariations: editingProduct.hasVariations,
-        variations: editingProduct.hasVariations ? editingProduct.variations : [],
-        useLinkedStock: editingProduct.useLinkedStock,
-        linkedProductId: editingProduct.useLinkedStock ? editingProduct.linkedProductId : '',
+        name: editingProduct.name || 'Tanpa Nama',
+        category: editingProduct.category || 'Sembako',
+        hasVariations: editingProduct.hasVariations || false,
+        variations: editingProduct.hasVariations ? (editingProduct.variations || []) : [],
+        useLinkedStock: editingProduct.useLinkedStock || false,
+        linkedProductId: editingProduct.useLinkedStock ? (editingProduct.linkedProductId || '') : '',
         buyPrice: editingProduct.hasVariations ? 0 : parseFloat(editingProduct.buyPrice || 0),
         price: editingProduct.hasVariations ? 0 : parseFloat(editingProduct.price || 0),
         stock: finalStock
@@ -569,8 +585,21 @@ export default function App() {
 
       setEditingProduct(null);
       setErrorMsg("");
+      setSystemMsg({ type: 'success', text: 'Perubahan barang berhasil disimpan.' });
     } catch (error) {
-      setErrorMsg("Gagal mengupdate barang di server.");
+      setErrorMsg("Gagal mengupdate barang di server. Pastikan koneksi stabil.");
+    }
+  };
+
+  // --- Fungsi Hapus Barang (BARU) ---
+  const executeDeleteProduct = async () => {
+    if (!productToDelete) return;
+    try {
+      await deleteDoc(doc(db, 'products', productToDelete.id));
+      setProductToDelete(null);
+      setSystemMsg({ type: 'success', text: 'Barang berhasil dihapus permanen dari Gudang.' });
+    } catch (error) {
+      setErrorMsg("Gagal menghapus barang.");
     }
   };
 
@@ -1627,8 +1656,23 @@ export default function App() {
                           <td className="px-3 py-2.5 md:p-4 text-center">
                             <span className={`text-[10px] md:text-xs px-2 py-0.5 rounded-full font-bold ${effStock > 10 ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>{effStock}</span>
                           </td>
-                          <td className="px-3 py-2.5 md:p-4 flex justify-center">
-                            <button onClick={() => setEditingProduct(product)} className="bg-blue-50 text-blue-600 px-2 py-1.5 rounded text-xs font-bold flex items-center gap-1"><Edit3 size={12} /> Edit</button>
+                          <td className="px-3 py-2.5 md:p-4 flex justify-center gap-1.5">
+                            <button onClick={() => {
+                              // SANITASI DATA SAAT KLIK EDIT (Penting untuk data lama)
+                              setEditingProduct({
+                                ...product,
+                                category: product.category || 'Sembako',
+                                hasVariations: product.hasVariations || false,
+                                variations: product.variations || [],
+                                useLinkedStock: product.useLinkedStock || false,
+                                linkedProductId: product.linkedProductId || '',
+                                buyPrice: product.buyPrice !== undefined ? product.buyPrice : 0,
+                                price: product.price !== undefined ? product.price : 0,
+                                stock: product.stock !== undefined ? product.stock : 0
+                              });
+                            }} className="bg-blue-50 text-blue-600 px-2 py-1.5 rounded text-xs font-bold flex items-center gap-1 hover:bg-blue-100"><Edit3 size={12} /> Edit</button>
+                            
+                            <button onClick={() => setProductToDelete(product)} className="bg-red-50 text-red-600 px-2 py-1.5 rounded text-xs font-bold flex items-center gap-1 hover:bg-red-100"><Trash2 size={12} /> Hapus</button>
                           </td>
                         </tr>
                       );
@@ -1882,7 +1926,7 @@ export default function App() {
                         <div><label className="block text-[10px] font-medium text-slate-500">Kode (Opsional)</label><input type="text" className="w-full px-2 py-1.5 border rounded text-xs focus:ring-1 focus:ring-indigo-500 uppercase" placeholder="KODE" value={v.code} onChange={e => handleVariationChange(index, 'code', e.target.value.toUpperCase(), true)} /></div>
                       </div>
                       <div className="grid grid-cols-3 gap-2">
-                        <div><label className="block text-[10px] font-medium text-slate-500">Hrg Beli</label><input type="number" required className="w-full px-2 py-1.5 border rounded text-xs" value={v.buyPrice} onChange={e => handleVariationChange(index, 'buyPrice', e.target.value, true)} /></div>
+                        <div><label className="block text-[10px] font-medium text-slate-500">Hrg Beli</label><input type="number" className="w-full px-2 py-1.5 border rounded text-xs" value={v.buyPrice} onChange={e => handleVariationChange(index, 'buyPrice', e.target.value, true)} /></div>
                         <div><label className="block text-[10px] font-medium text-slate-500">Hrg Jual (Wajib)</label><input type="number" required className="w-full px-2 py-1.5 border rounded text-xs" value={v.price} onChange={e => handleVariationChange(index, 'price', e.target.value, true)} /></div>
                         <div><label className="block text-[10px] font-medium text-slate-500">Stok (Wajib)</label><input type="number" required className="w-full px-2 py-1.5 border rounded text-xs" value={v.stock} onChange={e => handleVariationChange(index, 'stock', e.target.value, true)} /></div>
                       </div>
@@ -1910,7 +1954,7 @@ export default function App() {
 
               {!newProduct.hasVariations && !newProduct.useLinkedStock && (
                 <div className="grid grid-cols-3 gap-3 bg-white p-3 rounded-xl border border-slate-200">
-                  <div><label className="block text-[10px] font-medium text-slate-700 mb-1">Hrg Beli (Rp)</label><input type="number" required className="w-full px-2 py-2 border rounded-lg text-xs" value={newProduct.buyPrice} onChange={e => setNewProduct({...newProduct, buyPrice: e.target.value})} /></div>
+                  <div><label className="block text-[10px] font-medium text-slate-700 mb-1">Hrg Beli (Rp)</label><input type="number" className="w-full px-2 py-2 border rounded-lg text-xs" value={newProduct.buyPrice} onChange={e => setNewProduct({...newProduct, buyPrice: e.target.value})} /></div>
                   <div><label className="block text-[10px] font-medium text-slate-700 mb-1">Hrg Jual (Rp)</label><input type="number" required className="w-full px-2 py-2 border rounded-lg text-xs" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} /></div>
                   <div><label className="block text-[10px] font-medium text-slate-700 mb-1">Stok Fisik</label><input type="number" required className="w-full px-2 py-2 border rounded-lg text-xs" value={newProduct.stock} onChange={e => setNewProduct({...newProduct, stock: e.target.value})} /></div>
                 </div>
@@ -1982,7 +2026,7 @@ export default function App() {
                         <div><label className="block text-[10px] font-medium text-slate-500">Kode</label><input type="text" className="w-full px-2 py-1.5 border rounded text-xs uppercase" value={v.code || ''} onChange={e => handleVariationChange(index, 'code', e.target.value.toUpperCase(), false)} /></div>
                       </div>
                       <div className="grid grid-cols-3 gap-2">
-                        <div><label className="block text-[10px] font-medium text-slate-500">Hrg Beli</label><input type="number" required className="w-full px-2 py-1.5 border rounded text-xs" value={v.buyPrice} onChange={e => handleVariationChange(index, 'buyPrice', e.target.value, false)} /></div>
+                        <div><label className="block text-[10px] font-medium text-slate-500">Hrg Beli</label><input type="number" className="w-full px-2 py-1.5 border rounded text-xs" value={v.buyPrice} onChange={e => handleVariationChange(index, 'buyPrice', e.target.value, false)} /></div>
                         <div><label className="block text-[10px] font-medium text-slate-500">Hrg Jual</label><input type="number" required className="w-full px-2 py-1.5 border rounded text-xs" value={v.price} onChange={e => handleVariationChange(index, 'price', e.target.value, false)} /></div>
                         <div><label className="block text-[10px] font-medium text-slate-500">Stok</label><input type="number" required className="w-full px-2 py-1.5 border rounded text-xs" value={v.stock} onChange={e => handleVariationChange(index, 'stock', e.target.value, false)} /></div>
                       </div>
@@ -2010,7 +2054,7 @@ export default function App() {
 
               {!editingProduct.hasVariations && !editingProduct.useLinkedStock && (
                 <div className="grid grid-cols-3 gap-3 bg-white p-3 rounded-xl border border-slate-200">
-                  <div><label className="block text-[10px] font-medium text-slate-700 mb-1">Hrg Beli (Rp)</label><input type="number" required className="w-full px-2 py-2 border rounded-lg text-xs" value={editingProduct.buyPrice} onChange={e => setEditingProduct({...editingProduct, buyPrice: e.target.value})} /></div>
+                  <div><label className="block text-[10px] font-medium text-slate-700 mb-1">Hrg Beli (Rp)</label><input type="number" className="w-full px-2 py-2 border rounded-lg text-xs" value={editingProduct.buyPrice} onChange={e => setEditingProduct({...editingProduct, buyPrice: e.target.value})} /></div>
                   <div><label className="block text-[10px] font-medium text-slate-700 mb-1">Hrg Jual (Rp)</label><input type="number" required className="w-full px-2 py-2 border rounded-lg text-xs" value={editingProduct.price} onChange={e => setEditingProduct({...editingProduct, price: e.target.value})} /></div>
                   <div><label className="block text-[10px] font-medium text-slate-700 mb-1">Stok Fisik</label><input type="number" required className="w-full px-2 py-2 border rounded-lg text-xs" value={editingProduct.stock} onChange={e => setEditingProduct({...editingProduct, stock: e.target.value})} /></div>
                 </div>
@@ -2021,6 +2065,22 @@ export default function App() {
                 <button type="submit" className="flex-1 py-3 md:py-2.5 bg-blue-600 text-white font-bold rounded-lg text-sm shadow-md">Simpan Perubahan</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL HAPUS BARANG GUDANG (BARU) */}
+      {productToDelete && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
+          <div className="bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl p-5 text-center">
+            <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-3"><Trash2 size={28} /></div>
+            <h3 className="text-lg font-black text-slate-800 mb-1">Hapus Barang?</h3>
+            <p className="text-slate-700 font-bold text-sm mb-2">"{productToDelete.name}"</p>
+            <p className="text-slate-500 text-[11px] mb-5 leading-tight">Barang akan dihapus permanen dari Gudang dan Kasir. <br/>(Catatan transaksi lama tetap aman)</p>
+            <div className="flex gap-2">
+              <button onClick={() => setProductToDelete(null)} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 font-bold rounded-lg text-xs text-slate-700 transition-colors">Batal</button>
+              <button onClick={executeDeleteProduct} className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-xs transition-colors">Ya, Hapus</button>
+            </div>
           </div>
         </div>
       )}
