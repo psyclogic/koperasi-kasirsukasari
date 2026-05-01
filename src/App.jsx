@@ -44,6 +44,12 @@ const LogoKoperasi = ({ sizeClass = "w-16 h-16", iconSize = 32 }) => {
 };
 
 export default function App() {
+  // Fungsi Helper Tanggal (Ditaruh di atas agar bisa dipakai di inisialisasi state)
+  const getLocalDateString = (date) => {
+    const d = date || new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
   // State Autentikasi
   const [currentUser, setCurrentUser] = useState(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true); 
@@ -79,7 +85,7 @@ export default function App() {
     hasVariations: false, variations: [], useLinkedStock: false, linkedProductId: ''
   });
   const [editingProduct, setEditingProduct] = useState(null);
-  const [productToDelete, setProductToDelete] = useState(null); // State Baru untuk Hapus Barang
+  const [productToDelete, setProductToDelete] = useState(null);
   
   // State untuk Sorting Gudang
   const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
@@ -101,12 +107,15 @@ export default function App() {
   const [systemMsg, setSystemMsg] = useState({ type: '', text: '' });
   const fileInputRef = React.useRef(null);
 
+  // State Laporan Penjualan/Transaksi
+  const [startDate, setStartDate] = useState(getLocalDateString());
+  const [endDate, setEndDate] = useState(getLocalDateString());
+
   // State Stock Opname
   const [opnameData, setOpnameData] = useState([]);
-  const [opnamePeriod, setOpnamePeriod] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const [opnameStartDate, setOpnameStartDate] = useState(getLocalDateString());
+  const [opnameEndDate, setOpnameEndDate] = useState(getLocalDateString());
+  
   const [showOpnameModal, setShowOpnameModal] = useState(false);
   const [opnameForm, setOpnameForm] = useState(() => {
     const d = new Date();
@@ -114,14 +123,6 @@ export default function App() {
     return { id: '', date: localDate, itemName: '', prevStock: '', inQty: '', buyPrice: '', outQty: '', sellPrice: '' };
   });
   const [opnameToDelete, setOpnameToDelete] = useState(null);
-  
-  const getLocalDateString = (date) => {
-    const d = date || new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  };
-
-  const [startDate, setStartDate] = useState(getLocalDateString());
-  const [endDate, setEndDate] = useState(getLocalDateString());
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
@@ -489,7 +490,6 @@ export default function App() {
     }));
   };
 
-  // --- Fungsi Handle Tambah Barang ---
   const handleSaveProduct = async (e) => {
     e.preventDefault();
     if (!newProduct.name || !newProduct.category) return setErrorMsg("Mohon lengkapi nama dan kategori!");
@@ -498,7 +498,6 @@ export default function App() {
     if (newProduct.hasVariations) {
       if (!newProduct.variations || newProduct.variations.length === 0) return setErrorMsg("Mohon tambah minimal 1 variasi barang!");
       for (const v of newProduct.variations) {
-        // Pengecekan ketat agar angka 0 tetap lolos validasi tapi kosong dilarang
         if (!v.name || v.price === '' || v.price === undefined || v.stock === '' || v.stock === undefined) {
           return setErrorMsg("Lengkapi nama, harga jual, dan stok di semua variasi!");
         }
@@ -539,7 +538,6 @@ export default function App() {
     }
   };
 
-  // --- Fungsi Handle Edit Barang (SUDAN DIPERBAIKI UNTUK DATA LAMA) ---
   const handleUpdateProduct = async (e) => {
     e.preventDefault();
     if (!editingProduct.name) return setErrorMsg("Mohon lengkapi nama!");
@@ -548,7 +546,6 @@ export default function App() {
     if (editingProduct.hasVariations) {
       if (!editingProduct.variations || editingProduct.variations.length === 0) return setErrorMsg("Mohon tambah minimal 1 variasi barang!");
       for (const v of editingProduct.variations) {
-        // Pengecekan ketat agar 0 lolos, tapi kosong / undefined tidak
         if (!v.name || v.price === '' || v.price === undefined || v.stock === '' || v.stock === undefined) {
           return setErrorMsg("Lengkapi nama, harga jual, dan stok di semua variasi!");
         }
@@ -559,7 +556,6 @@ export default function App() {
       if (editingProduct.price === '' || editingProduct.price === undefined) return setErrorMsg("Mohon lengkapi Harga Jual barang ini!");
       finalStock = 0; 
     } else {
-      // PERBAIKAN: Sebelumnya pakai (!editingProduct.price), sehingga angka 0 (nol) dianggap salah dan gagal simpan.
       if (editingProduct.price === '' || editingProduct.price === undefined || editingProduct.stock === '' || editingProduct.stock === undefined) {
         return setErrorMsg("Lengkapi harga dan stok barang!");
       }
@@ -569,7 +565,6 @@ export default function App() {
     try {
       const productRef = doc(db, 'products', editingProduct.id);
       
-      // Update menggunakan nilai default (fallback) agar data lama yang tidak punya field tertentu tidak error
       await updateDoc(productRef, {
         code: editingProduct.code || '',
         name: editingProduct.name || 'Tanpa Nama',
@@ -591,7 +586,6 @@ export default function App() {
     }
   };
 
-  // --- Fungsi Hapus Barang (BARU) ---
   const executeDeleteProduct = async () => {
     if (!productToDelete) return;
     try {
@@ -775,7 +769,7 @@ export default function App() {
   const handleSaveOpname = async (e) => {
     e.preventDefault();
     try {
-      const dynamicPeriod = opnameForm.date ? opnameForm.date.substring(0, 7) : opnamePeriod;
+      const dynamicPeriod = opnameForm.date ? opnameForm.date.substring(0, 7) : (opnameStartDate || getLocalDateString()).substring(0, 7);
       const dataToSave = {
         period: dynamicPeriod, date: opnameForm.date, itemName: opnameForm.itemName,
         prevStock: Number(opnameForm.prevStock) || 0, inQty: Number(opnameForm.inQty) || 0,
@@ -809,8 +803,20 @@ export default function App() {
     }
   };
 
+  // Filter Data Opname berdasarkan Range Tanggal
   const filteredOpnameData = opnameData
-    .filter(item => item.period === opnamePeriod && item.status !== 'deleted')
+    .filter(item => {
+      if (item.status === 'deleted') return false;
+      let isValid = true;
+      
+      const itemDateStr = item.date || (item.period ? `${item.period}-01` : '');
+      if (!itemDateStr) return false;
+      
+      if (opnameStartDate && itemDateStr < opnameStartDate) isValid = false;
+      if (opnameEndDate && itemDateStr > opnameEndDate) isValid = false;
+      
+      return isValid;
+    })
     .sort((a, b) => {
       const dateA = new Date(a.date || 0).getTime();
       const dateB = new Date(b.date || 0).getTime();
@@ -1009,8 +1015,9 @@ export default function App() {
     link.click();
   };
 
-  const exportToWord = (filename, title, headers, rows) => {
-    const html = `<html xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><style>body{font-family:Arial,sans-serif;}table{border-collapse:collapse;width:100%;margin-top:20px;}th,td{border:1px solid #475569;padding:10px;text-align:left;}th{background-color:#fca5a5;color:#000;font-weight:bold;}h2{text-align:center;color:#b91c1c;font-family:Arial,sans-serif;}.periode{text-align:center;margin-bottom:20px;color:#475569;font-style:italic;}</style></head><body><h2>${title}</h2><div class="periode">Periode Laporan: ${startDate} s/d ${endDate}</div><table><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map((r, index) => {const cellStyle = index === rows.length - 1 ? 'font-weight: bold; background-color: #f1f5f9;' : '';return `<tr>${r.map(c => `<td style="${cellStyle}">${c}</td>`).join('')}</tr>`;}).join('')}</tbody></table></body></html>`;
+  const exportToWord = (filename, title, headers, rows, periodStr) => {
+    const pStr = periodStr || `${startDate} s/d ${endDate}`;
+    const html = `<html xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><style>body{font-family:Arial,sans-serif;}table{border-collapse:collapse;width:100%;margin-top:20px;}th,td{border:1px solid #475569;padding:10px;text-align:left;}th{background-color:#fca5a5;color:#000;font-weight:bold;}h2{text-align:center;color:#b91c1c;font-family:Arial,sans-serif;}.periode{text-align:center;margin-bottom:20px;color:#475569;font-style:italic;}</style></head><body><h2>${title}</h2><div class="periode">Periode Laporan: ${pStr}</div><table><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map((r, index) => {const cellStyle = index === rows.length - 1 ? 'font-weight: bold; background-color: #f1f5f9;' : '';return `<tr>${r.map(c => `<td style="${cellStyle}">${c}</td>`).join('')}</tr>`;}).join('')}</tbody></table></body></html>`;
     const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -1035,6 +1042,52 @@ export default function App() {
       rows = dailyTrxArray.map(day => [day.date, day.count, day.omset, day.profit]); totalsRow = ["TOTAL KESELURUHAN", dailyTrxArray.reduce((s,i) => s + i.count, 0), dailyTrxArray.reduce((s,i) => s + i.omset, 0), dailyTrxArray.reduce((s,i) => s + i.profit, 0)];
       allRows = [...rows, totalsRow];
       if (format === 'excel') exportToExcelCSV(filename, headers, allRows); else exportToWord(filename, title, headers, allRows.map(r => [r[0], r[1], r[2] !== "-" ? formatRupiah(r[2]) : "-", r[3] !== "-" ? formatRupiah(r[3]) : "-"]));
+    }
+  };
+
+  const handleDownloadOpname = (format) => {
+    const title = "Laporan Stock Opname - Koperasi Merah Putih"; 
+    const filename = `Laporan_Opname_${opnameStartDate || 'Semua'}_sd_${opnameEndDate || 'Semua'}`; 
+    const headers = ["Tanggal", "Nama Barang", "Stok Awal", "Jml Masuk", "Modal/Pcs", "Jml Keluar", "Jual/Pcs", "Sisa Akhir"];
+    
+    const rows = filteredOpnameData.map(item => [
+      item.date, 
+      item.itemName + (item.isAuto ? " (Kasir)" : ""), 
+      item.prevStock, 
+      item.inQty, 
+      item.buyPrice, 
+      item.outQty, 
+      item.sellPrice, 
+      Number(item.prevStock || 0) + Number(item.inQty || 0) - Number(item.outQty || 0)
+    ]); 
+    
+    const totalsRow = [
+      "TOTAL KESELURUHAN", 
+      "-", 
+      "-", 
+      filteredOpnameData.reduce((s,i) => s + Number(i.inQty), 0), 
+      "-", 
+      filteredOpnameData.reduce((s,i) => s + Number(i.outQty), 0), 
+      "-", 
+      "-"
+    ];
+    
+    const allRows = [...rows, totalsRow];
+    const periodStr = `${opnameStartDate || 'Awal'} s/d ${opnameEndDate || 'Akhir'}`;
+    
+    if (format === 'excel') {
+      exportToExcelCSV(filename, headers, allRows); 
+    } else {
+      exportToWord(filename, title, headers, allRows.map(r => [
+        r[0], 
+        r[1], 
+        r[2], 
+        r[3], 
+        r[4] !== "-" ? formatRupiah(r[4]) : "-", 
+        r[5], 
+        r[6] !== "-" ? formatRupiah(r[6]) : "-", 
+        r[7]
+      ]), periodStr);
     }
   };
 
@@ -1139,7 +1192,7 @@ export default function App() {
             {currentUser.role === 'admin' && (
               <>
                 <button onClick={() => setActiveTab("gudang")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${activeTab === "gudang" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><Package size={16} /> Gudang</button>
-                <button onClick={() => setActiveTab("opname")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${activeTab === "opname" ? "bg-white text-red-600 shadow" : "text-red-100 hover:text-white"}`}><ClipboardList size={16} /> Opname</button>
+                <button onClick={() => setActiveTab("opname")} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${activeTab === "opname" ? "bg-white text-indigo-600 shadow" : "text-red-100 hover:text-white"}`}><ClipboardList size={16} /> Opname</button>
               </>
             )}
             {currentUser.role === 'backup' && (
@@ -1658,7 +1711,6 @@ export default function App() {
                           </td>
                           <td className="px-3 py-2.5 md:p-4 flex justify-center gap-1.5">
                             <button onClick={() => {
-                              // SANITASI DATA SAAT KLIK EDIT (Penting untuk data lama)
                               setEditingProduct({
                                 ...product,
                                 category: product.category || 'Sembako',
@@ -1688,23 +1740,42 @@ export default function App() {
           <div className="h-full overflow-y-auto p-2 md:p-4 pb-20 md:pb-4 bg-slate-50">
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3 md:p-6 w-full max-w-7xl mx-auto">
               
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-6 border-b border-slate-100 pb-4">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-4">
                 <div>
                   <h2 className="text-lg md:text-2xl font-bold text-slate-800 flex items-center gap-2">
-                    <ClipboardList className="text-indigo-600 w-5 h-5 md:w-6 md:h-6" /> Stock Opname Bulanan
+                    <ClipboardList className="text-indigo-600 w-5 h-5 md:w-6 md:h-6" /> Stock Opname
                   </h2>
                   <p className="text-xs text-slate-500 mt-1">Catatan keuangan & fisik barang berdiri sendiri (tidak memotong gudang kasir).</p>
                 </div>
-                <div className="flex gap-2 w-full md:w-auto">
-                  <input type="month" className="flex-1 md:w-auto px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold focus:ring-2 focus:ring-indigo-500" value={opnamePeriod} onChange={(e) => setOpnamePeriod(e.target.value)} />
-                  <button onClick={() => {
-                    const d = new Date();
-                    const localDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                    setOpnameForm({ id: '', date: localDate, itemName: '', prevStock: '', inQty: '', buyPrice: '', outQty: '', sellPrice: '' });
-                    setShowOpnameModal(true);
-                  }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold flex justify-center items-center gap-2 transition-colors">
-                    <Plus size={16} /> <span className="hidden md:inline">Tambah Catatan</span>
-                  </button>
+                
+                <button onClick={() => {
+                  const d = new Date();
+                  const localDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                  setOpnameForm({ id: '', date: localDate, itemName: '', prevStock: '', inQty: '', buyPrice: '', outQty: '', sellPrice: '' });
+                  setShowOpnameModal(true);
+                }} className="w-full md:w-auto bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold flex justify-center items-center gap-2 transition-colors">
+                  <Plus size={16} /> <span className="hidden md:inline">Tambah Catatan</span>
+                </button>
+              </div>
+
+              {/* Filter Rentang Tanggal Opname (Mirip dengan Laporan Penjualan) */}
+              <div className="mb-6 bg-slate-50 p-3 md:p-4 rounded-xl border border-slate-200 flex flex-col md:flex-row gap-3 items-start md:items-end justify-between">
+                <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
+                  <div className="flex gap-3 w-full md:w-auto">
+                    <div className="flex-1 md:flex-none">
+                      <label className="block text-[10px] md:text-xs font-medium text-slate-500 mb-1 flex items-center gap-1"><Calendar size={12} /> Dari Tanggal</label>
+                      <input type="date" value={opnameStartDate} onChange={(e) => setOpnameStartDate(e.target.value)} className="w-full px-2 py-2 md:px-3 border border-slate-300 rounded-lg text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white" />
+                    </div>
+                    <div className="flex-1 md:flex-none">
+                      <label className="block text-[10px] md:text-xs font-medium text-slate-500 mb-1 flex items-center gap-1"><Calendar size={12} /> Sampai Tanggal</label>
+                      <input type="date" value={opnameEndDate} onChange={(e) => setOpnameEndDate(e.target.value)} className="w-full px-2 py-2 md:px-3 border border-slate-300 rounded-lg text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white" />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2 w-full md:w-auto mt-1 md:mt-0">
+                  <button onClick={() => { const d = getLocalDateString(); setOpnameStartDate(d); setOpnameEndDate(d); }} className="flex-1 md:flex-none px-2 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-xs md:text-sm hover:bg-slate-100 font-medium">Hari Ini</button>
+                  <button onClick={() => { const date = new Date(); setOpnameStartDate(getLocalDateString(new Date(date.getFullYear(), date.getMonth(), 1))); setOpnameEndDate(getLocalDateString(new Date(date.getFullYear(), date.getMonth() + 1, 0))); }} className="flex-1 md:flex-none px-2 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-xs md:text-sm hover:bg-slate-100 font-medium">Bulan Ini</button>
+                  <button onClick={() => { setOpnameStartDate(""); setOpnameEndDate(""); }} className="flex-1 md:flex-none px-2 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs md:text-sm hover:bg-slate-300 flex items-center justify-center gap-1 font-medium"><Filter size={14}/> Semua</button>
                 </div>
               </div>
 
@@ -1723,47 +1794,56 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200">
-                <table className="w-full text-left border-collapse whitespace-nowrap">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-[10px] md:text-xs">
-                      <th className="px-3 py-3 font-bold">Tanggal</th>
-                      <th className="px-3 py-3 font-bold">Nama Barang</th>
-                      <th className="px-3 py-3 font-bold text-center">Stok Awal</th>
-                      <th className="px-3 py-3 font-bold text-center bg-blue-50/50">Jml Masuk</th>
-                      <th className="px-3 py-3 font-bold text-right bg-blue-50/50">Modal/Pcs</th>
-                      <th className="px-3 py-3 font-bold text-center bg-green-50/50">Jml Keluar</th>
-                      <th className="px-3 py-3 font-bold text-right bg-green-50/50">Jual/Pcs</th>
-                      <th className="px-3 py-3 font-bold text-center bg-indigo-50 text-indigo-700">Sisa Akhir</th>
-                      <th className="px-3 py-3 font-bold text-center">Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredOpnameData.length === 0 ? (
-                      <tr><td colSpan="9" className="px-4 py-8 text-center text-slate-400 text-sm">Belum ada catatan opname aktif di bulan ini.</td></tr>
-                    ) : (
-                      filteredOpnameData.map((item) => {
-                        const finalStock = Number(item.prevStock || 0) + Number(item.inQty || 0) - Number(item.outQty || 0);
-                        return (
-                          <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50 bg-white">
-                            <td className="px-3 py-2.5 text-xs text-slate-500 font-mono">{item.date}</td>
-                            <td className="px-3 py-2.5 text-xs md:text-sm font-bold text-slate-800">{item.itemName}{item.isAuto && <span className="ml-1.5 text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded border border-red-200" title="Otomatis dari Kasir">Kasir</span>}</td>
-                            <td className="px-3 py-2.5 text-xs text-center font-mono text-slate-500">{item.prevStock}</td>
-                            <td className="px-3 py-2.5 text-xs text-center font-bold text-blue-600 bg-blue-50/10">+{item.inQty}</td>
-                            <td className="px-3 py-2.5 text-xs text-right text-slate-600 bg-blue-50/10">{formatRupiah(item.buyPrice)}</td>
-                            <td className="px-3 py-2.5 text-xs text-center font-bold text-green-600 bg-green-50/10">-{item.outQty}</td>
-                            <td className="px-3 py-2.5 text-xs text-right text-slate-600 bg-green-50/10">{formatRupiah(item.sellPrice)}</td>
-                            <td className="px-3 py-2.5 text-xs md:text-sm text-center font-black text-indigo-600 bg-indigo-50/30">{finalStock}</td>
-                            <td className="px-3 py-2.5 flex justify-center gap-1.5">
-                              <button onClick={() => { setOpnameForm(item); setShowOpnameModal(true); }} className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"><Edit3 size={14} /></button>
-                              <button onClick={() => setOpnameToDelete(item.id)} className="p-1.5 bg-red-50 text-red-600 rounded hover:bg-red-100"><Trash2 size={14} /></button>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+              <div className="hidden md:block rounded-xl border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 p-3 flex justify-between items-center border-b border-slate-200">
+                  <h3 className="font-bold text-slate-800 text-sm">Daftar Catatan Opname</h3>
+                  <div className="flex gap-1.5">
+                    <button onClick={() => handleDownloadOpname('excel')} className="p-1.5 md:px-3 bg-green-100 text-green-700 rounded flex items-center gap-1"><Download size={14}/><span className="hidden md:inline text-xs font-bold">Excel</span></button>
+                    <button onClick={() => handleDownloadOpname('word')} className="p-1.5 md:px-3 bg-blue-100 text-blue-700 rounded flex items-center gap-1"><FileText size={14}/><span className="hidden md:inline text-xs font-bold">Word</span></button>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse whitespace-nowrap">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-[10px] md:text-xs">
+                        <th className="px-3 py-3 font-bold">Tanggal</th>
+                        <th className="px-3 py-3 font-bold">Nama Barang</th>
+                        <th className="px-3 py-3 font-bold text-center">Stok Awal</th>
+                        <th className="px-3 py-3 font-bold text-center bg-blue-50/50">Jml Masuk</th>
+                        <th className="px-3 py-3 font-bold text-right bg-blue-50/50">Modal/Pcs</th>
+                        <th className="px-3 py-3 font-bold text-center bg-green-50/50">Jml Keluar</th>
+                        <th className="px-3 py-3 font-bold text-right bg-green-50/50">Jual/Pcs</th>
+                        <th className="px-3 py-3 font-bold text-center bg-indigo-50 text-indigo-700">Sisa Akhir</th>
+                        <th className="px-3 py-3 font-bold text-center">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredOpnameData.length === 0 ? (
+                        <tr><td colSpan="9" className="px-4 py-8 text-center text-slate-400 text-sm">Belum ada catatan opname aktif pada rentang tanggal tersebut.</td></tr>
+                      ) : (
+                        filteredOpnameData.map((item) => {
+                          const finalStock = Number(item.prevStock || 0) + Number(item.inQty || 0) - Number(item.outQty || 0);
+                          return (
+                            <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50 bg-white">
+                              <td className="px-3 py-2.5 text-xs text-slate-500 font-mono">{item.date}</td>
+                              <td className="px-3 py-2.5 text-xs md:text-sm font-bold text-slate-800">{item.itemName}{item.isAuto && <span className="ml-1.5 text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded border border-red-200" title="Otomatis dari Kasir">Kasir</span>}</td>
+                              <td className="px-3 py-2.5 text-xs text-center font-mono text-slate-500">{item.prevStock}</td>
+                              <td className="px-3 py-2.5 text-xs text-center font-bold text-blue-600 bg-blue-50/10">+{item.inQty}</td>
+                              <td className="px-3 py-2.5 text-xs text-right text-slate-600 bg-blue-50/10">{formatRupiah(item.buyPrice)}</td>
+                              <td className="px-3 py-2.5 text-xs text-center font-bold text-green-600 bg-green-50/10">-{item.outQty}</td>
+                              <td className="px-3 py-2.5 text-xs text-right text-slate-600 bg-green-50/10">{formatRupiah(item.sellPrice)}</td>
+                              <td className="px-3 py-2.5 text-xs md:text-sm text-center font-black text-indigo-600 bg-indigo-50/30">{finalStock}</td>
+                              <td className="px-3 py-2.5 flex justify-center gap-1.5">
+                                <button onClick={() => { setOpnameForm(item); setShowOpnameModal(true); }} className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"><Edit3 size={14} /></button>
+                                <button onClick={() => setOpnameToDelete(item.id)} className="p-1.5 bg-red-50 text-red-600 rounded hover:bg-red-100"><Trash2 size={14} /></button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
