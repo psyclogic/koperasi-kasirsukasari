@@ -65,6 +65,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("Semua"); 
   const [searchTrxQuery, setSearchTrxQuery] = useState("");
+  const [selectedCashierFilter, setSelectedCashierFilter] = useState("Semua");
   const [customerName, setCustomerName] = useState(""); 
   const [paymentAmount, setPaymentAmount] = useState("");
   const [showReceipt, setShowReceipt] = useState(false);
@@ -129,6 +130,8 @@ export default function App() {
       if (user) {
         let role = 'kasir';
         let displayUsername = user.email.split('@')[0];
+        // Kapitalisasi awal nama
+        displayUsername = displayUsername.charAt(0).toUpperCase() + displayUsername.slice(1);
         let defaultTab = 'kasir';
 
         if (user.email === 'yoga@koperasi.com') {
@@ -140,7 +143,13 @@ export default function App() {
           defaultTab = 'pengaturan';
         } else if (user.email === 'ayu@koperasi.com') {
           role = 'kasir';
-          displayUsername = 'Kasir 1';
+          displayUsername = 'Ayu';
+        } else if (user.email === 'imam@koperasi.com') {
+          role = 'kasir';
+          displayUsername = 'Imam';
+        } else if (user.email === 'amey@koperasi.com') {
+          role = 'kasir';
+          displayUsername = 'Amey';
         }
 
         setCurrentUser({ uid: user.uid, email: user.email, username: displayUsername, role: role });
@@ -959,6 +968,14 @@ export default function App() {
     if (searchTrxQuery && !trx.customer.toLowerCase().includes(searchTrxQuery.toLowerCase())) {
       isValid = false;
     }
+    if (selectedCashierFilter !== "Semua") {
+      // Kompatibilitas untuk catatan lama Ayu (sebelumnya Kasir 1)
+      if (selectedCashierFilter === "Ayu") {
+        if (trx.cashier !== "Ayu" && trx.cashier !== "Kasir 1") isValid = false;
+      } else {
+        if (trx.cashier !== selectedCashierFilter) isValid = false;
+      }
+    }
     return isValid;
   });
 
@@ -1110,11 +1127,23 @@ export default function App() {
             <input type="text" value={searchTrxQuery} onChange={(e) => setSearchTrxQuery(e.target.value)} placeholder="Nama / Kode BLJ..." className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-red-500 bg-white" />
           </div>
         )}
+        {currentUser?.role === 'admin' && (
+          <div className="w-full md:w-32">
+            <label className="block text-[10px] md:text-xs font-medium text-slate-500 mb-1 flex items-center gap-1"><User size={12} /> Kasir</label>
+            <select value={selectedCashierFilter} onChange={(e) => setSelectedCashierFilter(e.target.value)} className="w-full px-2 py-2 border border-slate-300 rounded-lg text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-red-500 bg-white">
+              <option value="Semua">Semua Kasir</option>
+              <option value="Ayu">Ayu</option>
+              <option value="Imam">Imam</option>
+              <option value="Amey">Amey</option>
+              <option value="Admin">Admin</option>
+            </select>
+          </div>
+        )}
       </div>
       <div className="flex gap-2 w-full md:w-auto mt-1 md:mt-0">
         <button onClick={() => { const d = getLocalDateString(); setStartDate(d); setEndDate(d); }} className="flex-1 md:flex-none px-2 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-xs md:text-sm hover:bg-slate-100 font-medium">Hari Ini</button>
         <button onClick={() => { const date = new Date(); setStartDate(getLocalDateString(new Date(date.getFullYear(), date.getMonth(), 1))); setEndDate(getLocalDateString(new Date(date.getFullYear(), date.getMonth() + 1, 0))); }} className="flex-1 md:flex-none px-2 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-xs md:text-sm hover:bg-slate-100 font-medium">Bulan Ini</button>
-        <button onClick={() => { setStartDate(""); setEndDate(""); setSearchTrxQuery(""); }} className="flex-1 md:flex-none px-2 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs md:text-sm hover:bg-slate-300 flex items-center justify-center gap-1 font-medium"><Filter size={14}/> Semua</button>
+        <button onClick={() => { setStartDate(""); setEndDate(""); setSearchTrxQuery(""); setSelectedCashierFilter("Semua"); }} className="flex-1 md:flex-none px-2 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs md:text-sm hover:bg-slate-300 flex items-center justify-center gap-1 font-medium"><Filter size={14}/> Semua</button>
       </div>
     </div>
   );
@@ -1464,7 +1493,15 @@ export default function App() {
                         <tr key={trx.id} className={`border-b border-slate-100 hover:bg-slate-50 ${viewTrash ? 'opacity-70' : ''}`}>
                           <td className="px-3 py-3 md:p-4 text-xs md:text-sm text-slate-900 font-bold font-mono">#{trx.id.toString().slice(-6)}</td>
                           <td className="px-3 py-3 md:p-4 text-xs md:text-sm text-slate-600">{trx.date.split(' ')[1]} <span className="text-[10px] text-slate-400 block">{trx.date.split(' ')[0]}</span></td>
-                          <td className="px-3 py-3 md:p-4 text-xs md:text-sm font-semibold text-slate-800">{trx.customer} {viewTrash && <span className="ml-2 bg-red-100 text-red-600 text-[9px] px-1.5 py-0.5 rounded uppercase font-bold">Batal</span>}</td>
+                          <td className="px-3 py-3 md:p-4 text-xs md:text-sm font-semibold text-slate-800">
+                            <div className="flex items-center">
+                              <span>{trx.customer}</span>
+                              {viewTrash && <span className="ml-2 bg-red-100 text-red-600 text-[9px] px-1.5 py-0.5 rounded uppercase font-bold">Batal</span>}
+                            </div>
+                            <div className="text-[10px] text-slate-500 font-normal mt-0.5 flex items-center gap-1">
+                              <User size={10} /> {trx.cashier || 'Unknown'}
+                            </div>
+                          </td>
                           <td className="px-3 py-3 md:p-4 text-xs md:text-sm font-bold text-slate-800 text-right">{formatRupiah(trx.total)}</td>
                           <td className="px-3 py-3 md:p-4 flex items-center justify-center gap-1.5">
                             <button onClick={() => setViewingReceipt(trx)} className="bg-white border border-slate-200 text-slate-600 px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm"><Eye size={14} /> Nota</button>
@@ -1794,7 +1831,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="hidden md:block rounded-xl border border-slate-200 overflow-hidden">
+              <div className="rounded-xl border border-slate-200 overflow-hidden">
                 <div className="bg-slate-50 p-3 flex justify-between items-center border-b border-slate-200">
                   <h3 className="font-bold text-slate-800 text-sm">Daftar Catatan Opname</h3>
                   <div className="flex gap-1.5">
@@ -2149,7 +2186,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL HAPUS BARANG GUDANG (BARU) */}
+      {/* MODAL HAPUS BARANG GUDANG */}
       {productToDelete && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
           <div className="bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl p-5 text-center">
