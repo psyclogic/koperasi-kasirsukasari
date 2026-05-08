@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 // IMPORT FIREBASE
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
+// Menggunakan initializeFirestore & persistentLocalCache untuk fitur OFFLINE
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth'; 
-import { Search, ShoppingCart, Plus, Minus, Trash2, ReceiptText, Package, CheckCircle2, AlertCircle, X, FileText, BarChart3, Clock, Calendar, Filter, ListOrdered, Eye, User, Lock, LogOut, Edit3, ArrowUpDown, ChevronDown, TrendingUp, Activity, Download, Image as ImageIcon, LayoutGrid, List, ClipboardList, Wallet, TrendingDown, Settings, Database, RotateCcw, ArchiveX, Upload, Check, Share2, Loader2, Link2, Layers } from 'lucide-react';
+import { Search, ShoppingCart, Plus, Minus, Trash2, ReceiptText, Package, CheckCircle2, AlertCircle, X, FileText, BarChart3, Calendar, Filter, ListOrdered, Eye, User, Lock, LogOut, Edit3, ArrowUpDown, ChevronDown, TrendingUp, Activity, Download, Image as ImageIcon, LayoutGrid, List, ClipboardList, Wallet, TrendingDown, Database, RotateCcw, ArchiveX, Upload, Check, Share2, Loader2, Link2, Layers, WifiOff } from 'lucide-react';
 
 // ==========================================
 // KONFIGURASI FIREBASE ANDA
@@ -17,9 +18,14 @@ const firebaseConfig = {
   appId: "1:405477869679:web:2fa809c5c4d7cab19e659a"
 };
 
-// Inisialisasi Aplikasi, Database, & Auth
+// Inisialisasi Aplikasi
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+
+// MENGAKTIFKAN MODE OFFLINE FIREBASE (Data tetap ada walau tanpa internet)
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
+});
+
 const auth = getAuth(app); 
 
 // ==========================================
@@ -44,7 +50,10 @@ const LogoKoperasi = ({ sizeClass = "w-16 h-16", iconSize = 32 }) => {
 };
 
 export default function App() {
-  // Fungsi Helper Tanggal (Ditaruh di atas agar bisa dipakai di inisialisasi state)
+  // Status Jaringan (Online / Offline)
+  const [isOffline, setIsOffline] = useState(typeof navigator !== 'undefined' ? !navigator.onLine : false);
+
+  // Fungsi Helper Tanggal 
   const getLocalDateString = (date) => {
     const d = date || new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -79,7 +88,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState("list"); 
   const [showCategoryMenu, setShowCategoryMenu] = useState(false); 
   
-  // State untuk Tambah, Edit, & Hapus Barang (Khusus Admin)
+  // State untuk Tambah, Edit, & Hapus Barang 
   const [showAddModal, setShowAddModal] = useState(false);
   const [newProduct, setNewProduct] = useState({ 
     code: '', name: '', buyPrice: '', price: '', stock: '', category: 'Sembako',
@@ -126,11 +135,24 @@ export default function App() {
   const [opnameToDelete, setOpnameToDelete] = useState(null);
 
   useEffect(() => {
+    // Deteksi Online / Offline
+    if (typeof window !== 'undefined') {
+      const handleOnline = () => setIsOffline(false);
+      const handleOffline = () => setIsOffline(true);
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+      return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+      };
+    }
+  }, []);
+
+  useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (user) {
         let role = 'kasir';
         let displayUsername = user.email.split('@')[0];
-        // Kapitalisasi awal nama
         displayUsername = displayUsername.charAt(0).toUpperCase() + displayUsername.slice(1);
         let defaultTab = 'kasir';
 
@@ -219,7 +241,7 @@ export default function App() {
       if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
         setLoginError('Username atau password salah!');
       } else if (error.code === 'auth/network-request-failed') {
-        setLoginError('Tidak ada koneksi internet!');
+        setLoginError('Tidak ada koneksi internet! Anda harus online untuk login PERTAMA KALI di perangkat ini.');
       } else {
         setLoginError('Gagal masuk. Silakan coba lagi.');
       }
@@ -384,7 +406,7 @@ export default function App() {
   const totalAmount = cart.reduce((sum, item) => sum + (item.price * (item.qty || 0)), 0);
   const changeAmount = parseFloat(paymentAmount || 0) - totalAmount;
 
-  const handleCheckout = async () => {
+  const handleCheckout = () => {
     if (cart.length === 0) return setErrorMsg("Keranjang masih kosong!");
     if (cart.some(item => item.qty === "" || item.qty <= 0)) return setErrorMsg("Ada barang dengan jumlah tidak valid!");
     if (parseFloat(paymentAmount || 0) < totalAmount) return setErrorMsg("Uang pembayaran kurang!");
@@ -413,7 +435,12 @@ export default function App() {
         status: 'active' 
       };
 
-      const docRef = await addDoc(collection(db, 'sales'), transactionData);
+      // Generate ID tanpa harus menunggu respon jaringan (sync sinkron offline-first)
+      const salesRef = doc(collection(db, 'sales'));
+      const transactionId = salesRef.id;
+      
+      // Simpan transaksi
+      setDoc(salesRef, transactionData).catch(console.error);
       
       const opnameDateStr = `${y}-${mo}-${d}`;
       const opnamePeriodStr = `${y}-${mo}`;
@@ -425,23 +452,24 @@ export default function App() {
         const productRef = doc(db, 'products', originalProduct.id);
         const prevEffectiveStock = getEffectiveStock(originalProduct, item.variationId);
 
+        // Update stok tanpa menggunakan `await` agar aplikasi tetap lancar saat Offline
         if (originalProduct.useLinkedStock && originalProduct.linkedProductId) {
           const parentProd = products.find(p => p.id === originalProduct.linkedProductId);
           if (parentProd) {
             const parentRef = doc(db, 'products', parentProd.id);
-            await updateDoc(parentRef, { stock: Number(parentProd.stock) - item.qty });
+            updateDoc(parentRef, { stock: Number(parentProd.stock) - item.qty }).catch(console.error);
           }
         } else if (item.variationId && originalProduct.hasVariations) {
           const updatedVariations = originalProduct.variations.map(v => 
             v.id === item.variationId ? { ...v, stock: Number(v.stock) - item.qty } : v
           );
           const totalNewStock = updatedVariations.reduce((sum, v) => sum + Number(v.stock), 0);
-          await updateDoc(productRef, { 
+          updateDoc(productRef, { 
             stock: totalNewStock, 
             variations: updatedVariations 
-          });
+          }).catch(console.error);
         } else {
-          await updateDoc(productRef, { stock: Number(originalProduct.stock) - item.qty });
+          updateDoc(productRef, { stock: Number(originalProduct.stock) - item.qty }).catch(console.error);
         }
 
         const opnameDataToSave = {
@@ -454,14 +482,15 @@ export default function App() {
           outQty: item.qty,
           sellPrice: item.price,
           timestamp: Date.now(),
-          trxId: docRef.id,
+          trxId: transactionId,
           isAuto: true,
           status: 'active'
         };
-        await addDoc(collection(db, 'stock_opname'), opnameDataToSave);
+        const opnameRef = doc(collection(db, 'stock_opname'));
+        setDoc(opnameRef, opnameDataToSave).catch(console.error);
       }
 
-      setReceiptData({ ...transactionData, id: docRef.id });
+      setReceiptData({ ...transactionData, id: transactionId });
       setCart([]);
       setPaymentAmount("");
       setCustomerName("");
@@ -499,7 +528,7 @@ export default function App() {
     }));
   };
 
-  const handleSaveProduct = async (e) => {
+  const handleSaveProduct = (e) => {
     e.preventDefault();
     if (!newProduct.name || !newProduct.category) return setErrorMsg("Mohon lengkapi nama dan kategori!");
     
@@ -524,7 +553,7 @@ export default function App() {
     }
 
     try {
-      await addDoc(collection(db, 'products'), {
+      addDoc(collection(db, 'products'), {
         code: newProduct.code || '',
         name: newProduct.name,
         category: newProduct.category || "Sembako",
@@ -536,18 +565,18 @@ export default function App() {
         price: newProduct.hasVariations ? 0 : parseFloat(newProduct.price || 0),
         stock: finalStock,
         createdAt: Date.now() 
-      });
+      }).catch(console.error);
 
       setShowAddModal(false);
       setNewProduct({ code: '', name: '', buyPrice: '', price: '', stock: '', category: 'Sembako', hasVariations: false, variations: [], useLinkedStock: false, linkedProductId: '' });
       setErrorMsg("");
-      setSystemMsg({ type: 'success', text: 'Barang berhasil ditambahkan ke gudang.' });
+      setSystemMsg({ type: 'success', text: 'Barang ditambahkan ke antrean simpan gudang.' });
     } catch (error) {
-      setErrorMsg("Gagal menyimpan data barang ke server.");
+      setErrorMsg("Terjadi kendala dalam aplikasi.");
     }
   };
 
-  const handleUpdateProduct = async (e) => {
+  const handleUpdateProduct = (e) => {
     e.preventDefault();
     if (!editingProduct.name) return setErrorMsg("Mohon lengkapi nama!");
 
@@ -574,7 +603,7 @@ export default function App() {
     try {
       const productRef = doc(db, 'products', editingProduct.id);
       
-      await updateDoc(productRef, {
+      updateDoc(productRef, {
         code: editingProduct.code || '',
         name: editingProduct.name || 'Tanpa Nama',
         category: editingProduct.category || 'Sembako',
@@ -585,20 +614,20 @@ export default function App() {
         buyPrice: editingProduct.hasVariations ? 0 : parseFloat(editingProduct.buyPrice || 0),
         price: editingProduct.hasVariations ? 0 : parseFloat(editingProduct.price || 0),
         stock: finalStock
-      });
+      }).catch(console.error);
 
       setEditingProduct(null);
       setErrorMsg("");
-      setSystemMsg({ type: 'success', text: 'Perubahan barang berhasil disimpan.' });
+      setSystemMsg({ type: 'success', text: 'Perubahan barang berhasil disimpan ke antrean.' });
     } catch (error) {
-      setErrorMsg("Gagal mengupdate barang di server. Pastikan koneksi stabil.");
+      setErrorMsg("Terjadi kendala dalam aplikasi.");
     }
   };
 
-  const executeDeleteProduct = async () => {
+  const executeDeleteProduct = () => {
     if (!productToDelete) return;
     try {
-      await deleteDoc(doc(db, 'products', productToDelete.id));
+      deleteDoc(doc(db, 'products', productToDelete.id)).catch(console.error);
       setProductToDelete(null);
       setSystemMsg({ type: 'success', text: 'Barang berhasil dihapus permanen dari Gudang.' });
     } catch (error) {
@@ -606,7 +635,7 @@ export default function App() {
     }
   };
 
-  const confirmDeleteTransaction = async () => {
+  const confirmDeleteTransaction = () => {
     if (!transactionToDelete) return;
 
     try {
@@ -618,25 +647,25 @@ export default function App() {
           if (originalProduct.useLinkedStock && originalProduct.linkedProductId) {
             const parentProd = products.find(p => p.id === originalProduct.linkedProductId);
             if (parentProd) {
-              await updateDoc(doc(db, 'products', parentProd.id), { stock: Number(parentProd.stock) + item.qty });
+              updateDoc(doc(db, 'products', parentProd.id), { stock: Number(parentProd.stock) + item.qty }).catch(console.error);
             }
           } else if (item.variationId && originalProduct.hasVariations) {
             const updatedVariations = originalProduct.variations.map(v => 
               v.id === item.variationId ? { ...v, stock: Number(v.stock) + item.qty } : v
             );
             const totalNewStock = updatedVariations.reduce((sum, v) => sum + Number(v.stock), 0);
-            await updateDoc(productRef, { stock: totalNewStock, variations: updatedVariations });
+            updateDoc(productRef, { stock: totalNewStock, variations: updatedVariations }).catch(console.error);
           } else {
-            await updateDoc(productRef, { stock: Number(originalProduct.stock) + item.qty });
+            updateDoc(productRef, { stock: Number(originalProduct.stock) + item.qty }).catch(console.error);
           }
         }
       }
 
-      await updateDoc(doc(db, 'sales', transactionToDelete.id), { status: 'deleted', deletedAt: Date.now() });
+      updateDoc(doc(db, 'sales', transactionToDelete.id), { status: 'deleted', deletedAt: Date.now() }).catch(console.error);
 
       const opnamesToSoftDelete = opnameData.filter(op => op.trxId === transactionToDelete.id);
       for (const op of opnamesToSoftDelete) {
-        await updateDoc(doc(db, 'stock_opname', op.id), { status: 'deleted' });
+        updateDoc(doc(db, 'stock_opname', op.id), { status: 'deleted' }).catch(console.error);
       }
 
       setTransactionToDelete(null);
@@ -645,7 +674,7 @@ export default function App() {
     }
   };
 
-  const confirmRestoreTransaction = async () => {
+  const confirmRestoreTransaction = () => {
     if (!transactionToRestore) return;
 
     try {
@@ -666,23 +695,23 @@ export default function App() {
         
         if (originalProduct.useLinkedStock && originalProduct.linkedProductId) {
           const parentProd = products.find(p => p.id === originalProduct.linkedProductId);
-          await updateDoc(doc(db, 'products', parentProd.id), { stock: Number(parentProd.stock) - item.qty });
+          updateDoc(doc(db, 'products', parentProd.id), { stock: Number(parentProd.stock) - item.qty }).catch(console.error);
         } else if (item.variationId && originalProduct.hasVariations) {
           const updatedVariations = originalProduct.variations.map(v => 
             v.id === item.variationId ? { ...v, stock: Number(v.stock) - item.qty } : v
           );
           const totalNewStock = updatedVariations.reduce((sum, v) => sum + Number(v.stock), 0);
-          await updateDoc(productRef, { stock: totalNewStock, variations: updatedVariations });
+          updateDoc(productRef, { stock: totalNewStock, variations: updatedVariations }).catch(console.error);
         } else {
-          await updateDoc(productRef, { stock: Number(originalProduct.stock) - item.qty });
+          updateDoc(productRef, { stock: Number(originalProduct.stock) - item.qty }).catch(console.error);
         }
       }
 
-      await updateDoc(doc(db, 'sales', transactionToRestore.id), { status: 'active', deletedAt: null });
+      updateDoc(doc(db, 'sales', transactionToRestore.id), { status: 'active', deletedAt: null }).catch(console.error);
 
       const opnamesToRestore = opnameData.filter(op => op.trxId === transactionToRestore.id);
       for (const op of opnamesToRestore) {
-        await updateDoc(doc(db, 'stock_opname', op.id), { status: 'active' });
+        updateDoc(doc(db, 'stock_opname', op.id), { status: 'active' }).catch(console.error);
       }
 
       setTransactionToRestore(null);
@@ -691,12 +720,12 @@ export default function App() {
     }
   };
 
-  const confirmPermanentDeleteTransaction = async () => {
+  const confirmPermanentDeleteTransaction = () => {
     if (!transactionToPermanentDelete) return;
     try {
-      await deleteDoc(doc(db, 'sales', transactionToPermanentDelete.id));
+      deleteDoc(doc(db, 'sales', transactionToPermanentDelete.id)).catch(console.error);
       const opnamesToDelete = opnameData.filter(op => op.trxId === transactionToPermanentDelete.id);
-      for (const op of opnamesToDelete) await deleteDoc(doc(db, 'stock_opname', op.id));
+      for (const op of opnamesToDelete) deleteDoc(doc(db, 'stock_opname', op.id)).catch(console.error);
       setTransactionToPermanentDelete(null);
     } catch (error) {
       setErrorMsg("Gagal menghapus transaksi secara permanen.");
@@ -741,12 +770,13 @@ export default function App() {
         if (!parsed.data) throw new Error("Format file JSON tidak sesuai.");
         const { products, sales, stock_opname } = parsed.data;
 
-        if (products) for (const item of products) { const { id, ...data } = item; await setDoc(doc(db, 'products', id), data); }
-        if (sales) for (const item of sales) { const { id, ...data } = item; await setDoc(doc(db, 'sales', id), data); }
-        if (stock_opname) for (const item of stock_opname) { const { id, ...data } = item; await setDoc(doc(db, 'stock_opname', id), data); }
+        // Kami tidak menggunakan AWAIT di dalam loop saat merestore untuk mencegah aplikasi macet.
+        if (products) for (const item of products) { const { id, ...data } = item; setDoc(doc(db, 'products', id), data).catch(console.error); }
+        if (sales) for (const item of sales) { const { id, ...data } = item; setDoc(doc(db, 'sales', id), data).catch(console.error); }
+        if (stock_opname) for (const item of stock_opname) { const { id, ...data } = item; setDoc(doc(db, 'stock_opname', id), data).catch(console.error); }
 
         setFileToRestore(null);
-        setSystemMsg({ type: 'success', text: 'Database berhasil dipulihkan dari file backup.' });
+        setSystemMsg({ type: 'success', text: 'Proses pemulihan database telah dimulai di latar belakang.' });
       } catch (error) {
         setFileToRestore(null);
         setSystemMsg({ type: 'error', text: 'Gagal memulihkan database: ' + error.message });
@@ -775,7 +805,7 @@ export default function App() {
     }
   };
 
-  const handleSaveOpname = async (e) => {
+  const handleSaveOpname = (e) => {
     e.preventDefault();
     try {
       const dynamicPeriod = opnameForm.date ? opnameForm.date.substring(0, 7) : (opnameStartDate || getLocalDateString()).substring(0, 7);
@@ -789,8 +819,8 @@ export default function App() {
       if (opnameForm.isAuto) dataToSave.isAuto = true;
       if (opnameForm.trxId) dataToSave.trxId = opnameForm.trxId;
 
-      if (opnameForm.id) await updateDoc(doc(db, 'stock_opname', opnameForm.id), dataToSave);
-      else await addDoc(collection(db, 'stock_opname'), dataToSave);
+      if (opnameForm.id) updateDoc(doc(db, 'stock_opname', opnameForm.id), dataToSave).catch(console.error);
+      else addDoc(collection(db, 'stock_opname'), dataToSave).catch(console.error);
       
       setShowOpnameModal(false);
       const d = new Date();
@@ -802,10 +832,10 @@ export default function App() {
     }
   };
 
-  const executeDeleteOpname = async () => {
+  const executeDeleteOpname = () => {
     if (!opnameToDelete) return;
     try {
-      await deleteDoc(doc(db, 'stock_opname', opnameToDelete));
+      deleteDoc(doc(db, 'stock_opname', opnameToDelete)).catch(console.error);
       setOpnameToDelete(null);
     } catch (error) {
       setErrorMsg("Gagal menghapus catatan opname.");
@@ -969,7 +999,6 @@ export default function App() {
       isValid = false;
     }
     if (selectedCashierFilter !== "Semua") {
-      // Kompatibilitas untuk catatan lama Ayu (sebelumnya Kasir 1)
       if (selectedCashierFilter === "Ayu") {
         if (trx.cashier !== "Ayu" && trx.cashier !== "Kasir 1") isValid = false;
       } else {
@@ -1096,14 +1125,7 @@ export default function App() {
       exportToExcelCSV(filename, headers, allRows); 
     } else {
       exportToWord(filename, title, headers, allRows.map(r => [
-        r[0], 
-        r[1], 
-        r[2], 
-        r[3], 
-        r[4] !== "-" ? formatRupiah(r[4]) : "-", 
-        r[5], 
-        r[6] !== "-" ? formatRupiah(r[6]) : "-", 
-        r[7]
+        r[0], r[1], r[2], r[3], r[4] !== "-" ? formatRupiah(r[4]) : "-", r[5], r[6] !== "-" ? formatRupiah(r[6]) : "-", r[7]
       ]), periodStr);
     }
   };
@@ -1159,7 +1181,12 @@ export default function App() {
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-4">
+      <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-4 relative">
+        {isOffline && (
+          <div className="absolute top-0 left-0 right-0 bg-orange-500 text-white text-xs md:text-sm text-center py-2 font-bold flex items-center justify-center gap-2">
+            <WifiOff size={16} /> Mode Offline. Anda tidak dapat login akun baru saat tidak ada internet.
+          </div>
+        )}
         <div className="bg-white max-w-md w-full rounded-2xl shadow-xl overflow-hidden">
           <div className="bg-red-600 p-6 text-center">
             <LogoKoperasi sizeClass="w-20 h-20 md:w-24 md:h-24 mx-auto mb-4" iconSize={40} />
@@ -1189,9 +1216,10 @@ export default function App() {
               </div>
             </div>
 
-            <button type="submit" disabled={isLoggingIn} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition-colors shadow-md flex justify-center items-center gap-2 text-sm md:text-base disabled:opacity-70 disabled:cursor-not-allowed">
+            <button type="submit" disabled={isLoggingIn || isOffline} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition-colors shadow-md flex justify-center items-center gap-2 text-sm md:text-base disabled:opacity-70 disabled:cursor-not-allowed">
               {isLoggingIn ? <><Loader2 size={18} className="animate-spin" /> Memeriksa...</> : 'Masuk Sistem'}
             </button>
+            {isOffline && <p className="text-[10px] text-center text-slate-400">Pastikan Anda memiliki internet untuk login pertama kali</p>}
           </form>
         </div>
       </div>
@@ -1200,6 +1228,11 @@ export default function App() {
 
   return (
     <div className="bg-slate-50 font-sans flex flex-col h-screen overflow-hidden">
+      {isOffline && (
+        <div className="bg-orange-500 text-white text-xs md:text-sm text-center py-1.5 font-bold flex items-center justify-center gap-2 shrink-0 z-50">
+          <WifiOff size={16} /> Mode Offline Aktif. Data otomatis tersimpan dan akan disinkron saat internet kembali.
+        </div>
+      )}
       <header className="bg-red-600 text-white shadow-md p-3 md:p-4 shrink-0 flex items-center justify-between z-10">
         <div className="flex items-center gap-2 md:gap-3">
           <LogoKoperasi sizeClass="w-10 h-10 md:w-12 md:h-12" iconSize={24} />
@@ -1795,7 +1828,7 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Filter Rentang Tanggal Opname (Mirip dengan Laporan Penjualan) */}
+              {/* Filter Rentang Tanggal Opname */}
               <div className="mb-6 bg-slate-50 p-3 md:p-4 rounded-xl border border-slate-200 flex flex-col md:flex-row gap-3 items-start md:items-end justify-between">
                 <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
                   <div className="flex gap-3 w-full md:w-auto">
